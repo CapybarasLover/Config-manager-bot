@@ -1,4 +1,4 @@
-package com.petr.service;
+package com.petr.db.service;
 
 public class ConfigService {
 }

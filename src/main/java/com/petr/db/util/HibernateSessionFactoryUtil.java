@@ -1,4 +1,4 @@
-package com.petr.util;
+package com.petr.db.util;
 
 public class HibernateSessionFactoryUtil {
 

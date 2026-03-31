@@ -1,4 +1,4 @@
-package com.petr.entity;
+package com.petr.db.entity;
 
 import jakarta.persistence.*;
 import lombok.Getter;
@@ -12,6 +12,6 @@ import lombok.Setter;
 @Setter
 public class User {
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private int tgChatId;
+
 }
