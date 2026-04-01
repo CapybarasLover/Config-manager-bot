@@ -1,6 +1,7 @@
 package com.petr.panel;
 
 import com.petr.exception.LoginException;
+import com.petr.exception.RequestException;
 import com.petr.exception.RetryAttemptsLeftException;
 
 import java.io.IOException;
@@ -36,26 +37,29 @@ public class ApiRequestsGermImpl implements ApiRequests {
             "\"subId\": \"%s\", " +
             "\"comment\": \"created from tg bot\", " +
             "\"reset\": 0 }]}";
-//
+
 //    public void ApiRequests() throws IOException, InterruptedException {
 //        login();
 //    }
-    // TODO Раскомментить!!!!!!!!!!!!! после дебага
-    private <T> T retry(ThrowingSupplier<T> requestToRetry){
+
+    private <T> T executeWithRetry(ThrowingSupplier<T> requestToRetry) throws IOException, InterruptedException {
         int attempts = 0;
 
         while(attempts < MAX_RETRIES){
             try {
-                login();
                 return requestToRetry.get();
+            } catch(RequestException requestEx){
+                System.out.println(requestEx.getMessage() + requestEx.getStatusCode());
+                login();
             } catch(LoginException loginEx){
                 System.out.println(loginEx.getMessage() + loginEx.getStatusCode());
-            } catch(Exception ex) {
-                System.out.println("Unhandled exception");
-            } finally {
-                attempts++;
             }
+            catch(Exception ex) {
+                System.out.println("Unhandled exception");
+            }
+            attempts++;
         }
+
         throw new RetryAttemptsLeftException("To many attempts",  MAX_RETRIES);
     }
 
@@ -89,27 +93,48 @@ public class ApiRequestsGermImpl implements ApiRequests {
     }
 
     @Override
-    public String addClientRequest(String inboundId, UUID uuid, UUID subUuid, String name) {
+    public String addClientRequest(String inboundId, UUID uuid, UUID subUuid, String name, double tgId) throws IOException, InterruptedException {
+        return executeWithRetry(()-> {
+            URI addClientUrl = baseUri.resolve("panel/api/inbounds/addClient");
 
-        return "";
+            String settings = String.format(settingsTemplate, uuid.toString(), name, tgId, subUuid);
+
+            String body = "id=" + URLEncoder.encode(inboundId, StandardCharsets.UTF_8) +
+                    "&settings=" + URLEncoder.encode(settings, StandardCharsets.UTF_8);
+
+            HttpRequest request = HttpRequest.newBuilder(addClientUrl)
+                    .POST(HttpRequest.BodyPublishers.ofString(body))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .build();
+
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+            if(response.statusCode() == 404){
+                throw new RequestException("Bad status", response.statusCode());
+            }
+
+            return "конфиг удачно добавлен на панель!";
+        });
     }
 
     @Override
     public HttpResponse<String> getAllConfigsRequest() throws IOException, InterruptedException {
-        URI getConfigsUrl = baseUri.resolve("panel/api/inbounds/list");
-        System.out.println(getConfigsUrl);
-        HttpRequest request = HttpRequest.newBuilder(getConfigsUrl)
-                .GET()
-                .header("Content-Type", "application/x-www-form-urlencoded")
-                .build();
+        return executeWithRetry(() ->{
+            URI getConfigsUrl = baseUri.resolve("panel/api/inbounds/list");
+            System.out.println(getConfigsUrl);
+            HttpRequest request = HttpRequest.newBuilder(getConfigsUrl)
+                    .GET()
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .build();
 
-        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
 
-        if(response.statusCode() == 404){
-            return retry(this::getAllConfigsRequest);
-        }
+            if(response.statusCode() == 404){
+                throw new RequestException("Bad status", response.statusCode());
+            }
 
-        return response;
+            return response;
+        });
     }
 
     @Override

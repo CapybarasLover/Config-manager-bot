@@ -18,4 +18,9 @@ public class ConfigServiceGermImpl implements ConfigService{
     public String deleteClient(String clientId) {
         return "";
     }
+
+    @Override
+    public String createClient(String clientId) {
+        return "";
+    }
 }
