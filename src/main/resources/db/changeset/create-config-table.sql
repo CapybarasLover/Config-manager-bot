@@ -1,6 +1,6 @@
 --liquibase formatted sql
 
---changeset create-config-table
+--changeset petrm:create-config-table
 
 CREATE TABLE config(
     tg_id           BIGINT      UNIQUE      NOT NULL    PRIMARY KEY,

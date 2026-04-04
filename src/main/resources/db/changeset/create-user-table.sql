@@ -1,6 +1,6 @@
 --liquibase formatted sql
 
---changeset create-user-table
+--changeset petrm:create-user-table
 
 CREATE TABLE tg_user (
     id       BIGINT      UNIQUE      PRIMARY KEY,
