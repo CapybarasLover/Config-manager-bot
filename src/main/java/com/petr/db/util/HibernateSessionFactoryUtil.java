@@ -1,5 +1,6 @@
 package com.petr.db.util;
 
+import com.petr.db.entity.Config;
 import com.petr.db.entity.User;
 
 import org.hibernate.SessionFactory;
@@ -49,6 +50,7 @@ public class HibernateSessionFactoryUtil {
             // 2. Создаём Metadata
             Metadata metadata = new MetadataSources(standardServiceRegistry)
                     .addAnnotatedClass(User.class)
+                    .addAnnotatedClass(Config.class)
                     .getMetadataBuilder()
                     .build();
 
