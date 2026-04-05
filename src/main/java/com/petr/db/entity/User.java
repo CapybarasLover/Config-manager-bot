@@ -12,8 +12,8 @@ import org.hibernate.annotations.ColumnDefault;
 @RequiredArgsConstructor
 public class User {
     @ColumnDefault("'w'")
-    @Column(name = "wait_accept", length = Integer.MAX_VALUE)
-    private String waitAccept;
+    @Column(nullable = false, name = "wait_accept", length = Integer.MAX_VALUE)
+    private String waitAccept = "w"; // дефолтное значение при создании юзера
     @Column(name = "has_config", nullable = false)
     private Boolean hasConfig;
     @Column(name = "tg_name", length = Integer.MAX_VALUE)

@@ -31,13 +31,14 @@ public class Bot {
                 commands = "start"
         )
         void onStart(BotContext bot, Message message){
+
             bot.sendMessage(message.chat.id, """
-                Привет! Зарегистрировал тебя.
+                Привет!
                 
                 Этот бот - менеджер твоих конфигов.
                 Если не помнишь как им пользоваться - введи команду /help
                 """).exec();
-            //TODO добавление пользователя в бд здесь
+            //TODO добавление пользователя в бд здесь, если не существует
         }
 
         @MessageHandler(
