@@ -1,14 +1,16 @@
 package com.petr.configmanager;
 
-import com.petr.panel.service.ConfigService;
-import com.petr.panel.service.ConfigServiceGermImpl;
+import com.petr.db.DbService;
+import com.petr.panel.service.PanelService;
+import com.petr.panel.service.PanelServiceGermImpl;
 
 public class ConfigManagerImpl implements ConfigManager {
-    private final ConfigService configServiceGerm = new ConfigServiceGermImpl();
+    private final PanelService panelServiceGerm = new PanelServiceGermImpl();
+    private final DbService dbService = new DbService();
 
     @Override
     public String getAllConfigs() {
-        return configServiceGerm.listClients();
+        return panelServiceGerm.listClients();
     }
 
     //TODO по хорошему написать так же попытки получить запросом с панели, с локальной бд и возврат null или пустой строки

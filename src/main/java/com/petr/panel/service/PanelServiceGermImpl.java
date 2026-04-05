@@ -6,7 +6,7 @@ import com.petr.panel.ApiRequestsGermImpl;
 import java.io.IOException;
 import java.util.UUID;
 
-public class ConfigServiceGermImpl implements ConfigService{
+public class PanelServiceGermImpl implements PanelService {
     private final ApiRequests api = new ApiRequestsGermImpl();
 
     private String createVlessLink(String clientName, UUID uuid) {

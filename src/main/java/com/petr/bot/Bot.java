@@ -2,6 +2,7 @@ package com.petr.bot;
 
 import com.petr.bot.filters.isAdmin;
 import com.petr.bot.filters.userHasConfig;
+import com.petr.db.DbService;
 import io.github.natanimn.telebof.BotClient;
 import io.github.natanimn.telebof.BotContext;
 import io.github.natanimn.telebof.annotations.MessageHandler;
@@ -67,7 +68,9 @@ public class Bot {
                 filter = userHasConfig.class
         )
         void userHasConfig(BotContext bot, Message message){
-
+            bot.sendMessage(message.chat.id, """
+                команда приоритет 1
+                """).exec();
         }
 
         //TODO написать хэндлер создания конфига
@@ -76,7 +79,9 @@ public class Bot {
                 commands = "get_config"
         )
         void createConfig(BotContext bot, Message message){
-
+            bot.sendMessage(message.chat.id, """
+                команда приоритет 2
+                """).exec();
         }
 
         @MessageHandler(
