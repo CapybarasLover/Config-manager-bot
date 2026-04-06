@@ -2,19 +2,18 @@ package com.petr.configmanager;
 
 import com.petr.db.DbService;
 import com.petr.panel.service.PanelService;
-import com.petr.panel.service.PanelServiceGermImpl;
-import io.github.natanimn.telebof.BotContext;
-import io.github.natanimn.telebof.types.updates.Message;
+
+import com.petr.panel.service.PanelServiceLatvImpl;
 
 import java.io.IOException;
 
 public class ConfigManagerImpl implements ConfigManager {
-    private final PanelService panelServiceGerm = new PanelServiceGermImpl();
+    private final PanelService panelService = new PanelServiceLatvImpl();
     private final DbService dbService = new DbService();
 
     @Override
-    public String getAllConfigs() {
-        return panelServiceGerm.listClients();
+    public String getAllConfigs() throws IOException, InterruptedException {
+        return panelService.listClients();
     }
 
     //TODO по хорошему написать так же попытки получить запросом с панели, с локальной бд и возврат null или пустой строки
@@ -22,10 +21,9 @@ public class ConfigManagerImpl implements ConfigManager {
     public String[] getConfigs(Long userId, String username) throws IOException, InterruptedException {
         if(dbService.userHasAcceptedConfig(userId)){
             String[] configs = dbService.getConfigsById(userId);
-
             return configs;
         } else if(!dbService.userHasConfig(userId)){
-            String[] configs = panelServiceGerm.createClient(username, userId);
+            String[] configs = panelService.createClient(username, userId);
 
             System.out.println(dbService.setConfig(userId, username, configs[0], configs[1]));
             System.out.println(dbService.setUserHasConfig(userId, true));
@@ -33,6 +31,15 @@ public class ConfigManagerImpl implements ConfigManager {
             return new String[]{};
         } else {
             return new String[]{};
+        }
+    }
+
+    public String[] getConfigs(Long userId) throws IOException, InterruptedException {
+        if(dbService.userHasAcceptedConfig(userId)){
+            String[] configs = dbService.getConfigsById(userId);
+            return configs;
+        } else {
+            return new String[] {};
         }
     }
 
@@ -47,5 +54,21 @@ public class ConfigManagerImpl implements ConfigManager {
         return dbService.findUserById(id) != null
                 ? "Пользователь найден!"
                 : dbService.addUser(id, username);
+    }
+
+    @Override
+    public String getWaitingConfigs() {
+        return "";
+    }
+
+    @Override
+    public String acceptConfig(Long id) {
+        dbService.setUserStatusAccepted(id);
+        return "Пользователю разрешено получить конфиг!";
+    }
+
+    @Override
+    public boolean isRegistered(long id) {
+        return dbService.findUserById(id) != null;
     }
 }

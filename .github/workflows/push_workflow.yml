@@ -1,7 +1,7 @@
-#name: push_workflow.yml
-#on:
-#  push:
-#    branches: [ master ]
-#jobs:
-#
+name: push_workflow.yml
+on:
+  push:
+    branches: [ master ]
+jobs:
+
 

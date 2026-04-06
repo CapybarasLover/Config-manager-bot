@@ -27,10 +27,12 @@ public class UserDao {
         }
     }
 
-    public void setUserStatus(User user) {
+    public void setUserStatus(String status, Long tgId) {
         try(Session session = this.sessionFactory.openSession()) {
             Transaction tx = session.beginTransaction();
-            session.clear();
+            User user = session.find(User.class, tgId);
+            user.setWaitAccept(status);
+            tx.commit();
         }
     }
 

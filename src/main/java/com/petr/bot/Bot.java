@@ -74,7 +74,6 @@ public class Bot {
                 """).exec();
         }
 
-        //TODO обновить по ходу разработки
         @MessageHandler(
                 commands = "help"
         )
@@ -92,10 +91,18 @@ public class Bot {
         )
         void onGetConfig(BotContext bot, Message message) throws IOException, InterruptedException {
             bot.clearState(message.chat.id);
+            if(!configManager.isRegistered(message.chat.id)){
+                bot.sendMessage(message.chat.id, """
+                        К сожалению кажется вы не зарегестрированы в базе данных.
+                        
+                        Отправьте /start чтобы бот запомнил вас)
+                        """).exec();
+                return;
+            }
             String username = message.chat.username;
             if (username != null && !username.isBlank()) {
                 try {
-                    runGetConfig(bot, message, buildConfigClientName(username));
+                    runGetConfig(bot, message.chat.id, buildConfigClientName(username), false);
                 } catch (IllegalArgumentException ex) {
                     bot.setState(message.chat.id, STATE_AWAITING_CONFIG_NAME);
                     bot.sendMessage(message.chat.id, """
@@ -147,7 +154,7 @@ public class Bot {
                 return;
             }
             bot.clearState(message.chat.id);
-            runGetConfig(bot, message, base + CONFIG_NAME_SUFFIX);
+            runGetConfig(bot, message.chat.id, base + CONFIG_NAME_SUFFIX, false);
         }
 
         /**
@@ -169,18 +176,54 @@ public class Bot {
             return base + CONFIG_NAME_SUFFIX;
         }
 
-        private void runGetConfig(BotContext bot, Message message, String configName)
-                throws IOException, InterruptedException {
-            String[] configs = configManager.getConfigs(message.chat.id, configName);
-            sendConfigLinks(bot, message.chat.id, configs);
+        private static String escapeMarkdown(String text) {
+            if (text == null || text.isEmpty()) {
+                return "";
+            }
+            return text
+                    .replace("\\", "\\\\")
+                    .replace("_", "\\_")
+                    .replace("*", "\\*")
+                    .replace("`", "\\`")
+                    .replace("[", "\\[");
         }
 
-        private void sendConfigLinks(BotContext bot, long chatId, String[] configs) {
+        private void runGetConfig(BotContext bot, Long id, String configName, boolean idFromAdmin)
+                throws IOException, InterruptedException {
+            String[] configs;
+            if(idFromAdmin){
+                configs = configManager.getConfigs(id);
+            } else {
+                configs = configManager.getConfigs(id, configName);
+            }
+            sendConfigLinks(bot, id, configs, configName);
+        }
+
+        private void sendConfigLinks(BotContext bot, long chatId, String[] configs, String username) {
             if (configs.length == 0) {
                 bot.sendMessage(chatId, """
                         Ваш конфиг создан, но еще подтвержден админом.
                         Ожидайте...
                         """).exec();
+                Long[] adminChats = {
+                        Long.parseLong(System.getenv("ADMIN_CHATS").split(",")[0]),
+                        Long.parseLong(System.getenv("ADMIN_CHATS").split(",")[1])
+                };
+                String displayUsername = stripOptionalConfigSuffix(username);
+                String safeUsername = escapeMarkdown(displayUsername);
+                String safeChatId = escapeMarkdown(String.valueOf(chatId));
+                for(var admin : adminChats){
+                    bot.sendMessage(admin, String.format("""
+                                    Пользователь с ником @%s (userid: %s) хочет
+                                    создать конфиг.
+                                    
+                                    войдите в админ режим /admin
+                                    
+                                    и затем пришлите `Yey, %s`, если согласны,
+                                    или `Nay, %s`, если нет.
+                                    """, safeUsername, safeChatId, safeChatId, safeChatId)
+                            ).parseMode(ParseMode.MARKDOWN).exec();
+                }
             } else {
                 bot.sendMessage(chatId, String.format("""
                         Ваши конфиги (нажмите на одну из ссылок,
@@ -191,7 +234,7 @@ public class Bot {
 
                         Конфиг:
                         `%s`
-                        """, configs[0], configs[1])).parseMode(ParseMode.MARKDOWN).exec();
+                        """, configs[1], configs[0])).parseMode(ParseMode.MARKDOWN).exec();
             }
         }
 
@@ -209,7 +252,21 @@ public class Bot {
                 /delConfig - удалить конфиг по юзернейму
                 
                 /exAdmin - выйти из админ режима
-                """).exec(); //TODO изменить по ходу разработки
+                """).exec();
+        }
+
+        @MessageHandler(
+                filter = isAdmin.class,
+                state = "admin_state"
+        )
+        void onAdminMessage(BotContext bot, Message message) throws IOException, InterruptedException {
+            Long userChatId = Long.parseLong(message.text.split(", ")[1]);
+            if(message.text.contains("Yey")){
+                configManager.acceptConfig(userChatId);
+                runGetConfig(bot, userChatId, "", true);
+            } else if(message.text.contains("Nay")){
+
+            }
         }
 
         @MessageHandler(

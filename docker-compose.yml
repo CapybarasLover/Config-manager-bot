@@ -1,41 +1,42 @@
 version: "3.9"
 services:
 #  TODO переписать под нужды бота
-#  bot:
-#
-#    image: tg-config-bot
-#    build:
-#      context: .
-#    env_file:
-#      - .env
-#    depends_on:
-#      db:
-#        condition: service_healthy
-#    networks:
-#      - postgres
-#    environment:
-#      BOT_TOKEN: ${BOT_TOKEN}
-#      PANEL_PORT: ${PANEL_PORT}
-#      KEY_PATH: ${KEY_PATH}
-#      XUI_USERNAME: ${XUI_USERNAME}
-#      XUI_PASSWORD: ${XUI_PASSWORD}
-#      POSTGRES_NAME: ${POSTGRES_NAME}
-#      POSTGRES_USER: ${POSTGRES_USER}
-#      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-#      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
-#      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
-#      ADMIN_CHATS: ${ADMIN_CHATS}
-#    deploy:
-#      resources:
-#        limits:
-#          cpus: '0.5'
-#          memory: 512M
-#    healthcheck:
-#      test: [ "CMD-SHELL", "pgrep -f java || exit 1" ]
-#      interval: 10s
-#      timeout: 5s
-#      retries: 6
-#      start_period: 20s
+  bot:
+    image: tg-config-bot
+    build:
+      context: .
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - postgres
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN}
+      GERMAN_PANEL_HOME_URL: ${GERMAN_PANEL_HOME_URL}
+      LATV_PANEL_HOME_URL: ${LATV_PANEL_HOME_URL}
+      XUI_USERNAME: ${XUI_USERNAME}
+      XUI_PASSWORD: ${XUI_PASSWORD}
+      XUI_PASSWORD_LATV: ${XUI_PASSWORD_LATV}
+      XUI_USERNAME_LATV: ${XUI_USERNAME_LATV}
+      DB_LINK_PROD: ${DB_LINK_PROD}
+      DB_LINK_DEV: ${DB_LINK_DEV}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      ADMIN_CHATS: ${ADMIN_CHATS}
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+    healthcheck:
+      test: [ "CMD-SHELL", "pgrep -f java || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
 
   db:
     image: postgres:latest

@@ -44,6 +44,9 @@ public class DbService {
 
     public String[] getConfigsById(Long tgId) {
         Config config = configDao.getConfigByUserId(tgId);
+        if(config == null){
+            return new String[] {};
+        }
         return new String[] {
                 config.getVlessLink(),
                 config.getSubLink()
@@ -53,5 +56,9 @@ public class DbService {
     public String setUserHasConfig(Long tgId, boolean status) {
         userDao.setUserHasConfig(tgId, status);
         return "Пользователь обновлен!";
+    }
+
+    public void setUserStatusAccepted(Long tgId) {
+        userDao.setUserStatus("a", tgId);
     }
 }

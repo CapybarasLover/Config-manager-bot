@@ -22,8 +22,8 @@ public class PanelServiceGermImpl implements PanelService {
     }
 
     @Override
-    public String listClients() {
-        return "";
+    public String listClients() throws IOException, InterruptedException {
+        return api.getAllConfigsRequest().body();
     } // TODO написать десериализацию возвращаемого JSON
 
     @Override
