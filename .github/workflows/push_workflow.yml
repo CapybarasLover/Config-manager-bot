@@ -1,0 +1,120 @@
+name: push_workflow.yml
+on:
+  push:
+    branches: [ master ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create .env
+        run: |
+          cat > .env <<EOF
+          BOT_TOKEN=${{ secrets.BOT_TOKEN }}
+          GERMAN_PANEL_HOME_URL=${{ secrets.GERMAN_PANEL_HOME_URL }}
+          XUI_USERNAME=${{ secrets.XUI_USERNAME }}
+          XUI_PASSWORD=${{ secrets.XUI_PASSWORD }}
+          LATV_PANEL_HOME_URL=${{ secrets.LATV_PANEL_HOME_URL }}
+          XUI_PASSWORD_LATV=${{ secrets.XUI_PASSWORD_LATV }}
+          XUI_USERNAME_LATV=${{ secrets.XUI_USERNAME_LATV }}
+          DB_LINK_PROD=${{ secrets.DB_LINK_PROD }}
+          DB_LINK_DEV=${{ secrets.DB_LINK_DEV }}
+          DB_USER=${{ secrets.DB_USER }}
+          DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+          DB_NAME=${{ secrets.DB_NAME }}
+          ADMIN_CHATS=${{ secrets.ADMIN_CHATS }}
+          EOF
+
+      - name: Create env.txt for artifacts
+        run: |
+          {
+            echo "BOT_TOKEN="
+            echo "GERMAN_PANEL_HOME_URL="
+            echo "XUI_USERNAME="
+            echo "XUI_PASSWORD="
+            echo "LATV_PANEL_HOME_URL="
+            echo "XUI_PASSWORD_LATV="
+            echo "XUI_USERNAME_LATV="
+            echo "DB_LINK_PROD="
+            echo "DB_LINK_DEV="
+            echo "DB_USER="
+            echo "DB_PASSWORD="
+            echo "DB_NAME="
+            echo "ADMIN_CHATS="
+          } > env.txt
+
+      - name: Docker Compose
+        run: |
+          docker compose down --remove-orphans || true
+          docker compose up --build -d
+          sleep 20
+          docker compose ps
+
+      - name: Wait for backend healthy
+        run: |
+          set -e
+          echo "Waiting for bot container to be healthy..."
+          for i in {1..30}; do
+            STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$(docker compose ps -q bot)" 2>/dev/null || echo "starting")
+            echo "Attempt $i: status=$STATUS"
+            if [ "$STATUS" = "healthy" ]; then
+              echo "Bot is healthy!"
+              exit 0
+            fi
+            if [ "$STATUS" = "unhealthy" ]; then
+              echo "Bot is unhealthy"
+              exit 1
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for bot health"
+          exit 1
+
+      - name: Database connectivity test
+        env:
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+        run: |
+          set -e
+          COUNT=$(docker compose exec -T db \
+            psql -U "$DB_USER" -d "$DB_NAME" -t -A -c "SELECT COUNT(*) FROM tg_user;")
+          echo "Rows in tg_user: $COUNT"
+          echo "$COUNT" > db-count.txt
+
+      - name: Create test report
+        env:
+          DB_NAME: ${{ secrets.DB_NAME }}
+        run: |
+          {
+            echo "# Deployment Test Report"
+            echo "- Database: $DB_NAME"
+            echo "- Rows in tg_user:"
+            cat db-count.txt
+          } > test-report.md
+          cat test-report.md
+
+      - name: Save Docker logs
+        if: always()
+        run: |
+          docker compose logs > deployment-logs.txt || true
+          docker images > docker-images.txt || true
+          docker ps -a > docker-ps.txt || true
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: devops-artifacts
+          path: |
+            env.txt
+            test-report.md
+            db-count.txt
+            deployment-logs.txt
+            docker-images.txt
+            docker-ps.txt
+          retention-days: 30
