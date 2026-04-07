@@ -48,14 +48,10 @@ jobs:
             echo "ADMIN_CHATS="
           } > env.txt
 
-      - name: Docker Compose build new bot image
+      - name: Docker Compose
         run: |
-          docker compose build bot
-
-
-      - name: Docker Compose up new bot
-        run: |
-          docker compose up -d --no-deps bot
+          docker compose down --remove-orphans || true
+          docker compose up --build -d
           sleep 20
           docker compose ps
 
