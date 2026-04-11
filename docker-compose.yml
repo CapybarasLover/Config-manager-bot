@@ -1,7 +1,5 @@
 version: "3.9"
 
-# Фиксированное имя проекта: при переименовании репозитория путь checkout на раннере меняется,
-# но Compose не создаёт второй стек с теми же сервисами (см. также docker compose ls).
 name: tg-config-bot-prod
 
 services:
@@ -52,7 +50,7 @@ services:
       POSTGRES_DB: ${DB_NAME}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
-      - db-data:/var/lib/db
+      - db-data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     healthcheck:
