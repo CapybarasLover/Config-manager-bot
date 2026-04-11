@@ -35,5 +35,8 @@ build/
 ### VS Code ###
 .vscode/
 .env
+
+# Локальные дампы БД (scripts/backup-postgres.sh)
+/backups/
 ### Mac OS ###
 .DS_Store
