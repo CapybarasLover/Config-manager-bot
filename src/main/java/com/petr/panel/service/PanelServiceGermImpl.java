@@ -8,6 +8,10 @@ import java.util.UUID;
 
 public class PanelServiceGermImpl implements PanelService {
     private final ApiRequests api = new ApiRequestsGermImpl();
+    private String inbound;
+    public PanelServiceGermImpl(){
+        inbound = "1";
+    }
 
     private String createVlessLink(String clientName, UUID uuid) {
         return "vless://" + uuid
@@ -28,7 +32,7 @@ public class PanelServiceGermImpl implements PanelService {
 
     @Override
     public String deleteClient(String clientName) throws IOException, InterruptedException {
-        return api.deleteClient("1", clientName);
+        return api.deleteClient(inbound, clientName);
     }
 
     @Override
@@ -39,7 +43,7 @@ public class PanelServiceGermImpl implements PanelService {
         String subLink = createSubLink(uuid);
         String vlessLink = createVlessLink(clientName, subUuid);
 
-        api.addClientRequest("1", uuid, subUuid, clientName, tgId);
+        api.addClientRequest(inbound, uuid, subUuid, clientName, tgId);
 
         return new String[]{vlessLink, subLink};
     }

@@ -9,6 +9,16 @@ import java.util.UUID;
 
 public class PanelServiceLatvImpl implements PanelService {
     private final ApiRequests api = new ApiRequestsLatvImpl();
+    private String inbound;
+
+    public PanelServiceLatvImpl(){
+        String env = System.getProperty("app.env");
+        if(env.equals("dev")){
+            inbound = "3";
+        } else {
+            inbound = "2";
+        }
+    }
 
     @Override
     public String listClients() throws IOException, InterruptedException {
@@ -17,7 +27,7 @@ public class PanelServiceLatvImpl implements PanelService {
 
     @Override
     public String deleteClient(String clientId) throws IOException, InterruptedException {
-        return api.deleteClient("1", clientId);
+        return api.deleteClient(inbound, clientId);
     }
 
     @Override
@@ -28,7 +38,7 @@ public class PanelServiceLatvImpl implements PanelService {
         String subLink = createSubLink(subUuid);
         String vlessLink = createVlessLink(clientName, uuid);
 
-        api.addClientRequest("2", uuid, subUuid, clientName, tgId);
+        api.addClientRequest(inbound, uuid, subUuid, clientName, tgId);
 
         return new String[]{vlessLink, subLink};
     }
