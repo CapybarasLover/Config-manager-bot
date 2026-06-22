@@ -13,6 +13,7 @@ import java.util.UUID;
 
 public class Start {
     public static void main(String[] args) throws IOException, InterruptedException {
+        // ПЕРЕД ЗАПУСКОМ ВСЕГДА ПРОВЕРЯТЬ ПЕРЕМЕННЫЕ VM OPTIONS
         DatabaseMigration.startMigration(System.getProperty("app.env"));
         Bot bot = new Bot();
         bot.startBot();
