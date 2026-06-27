@@ -1,0 +1,4 @@
+CONTAINER ID   IMAGE           COMMAND                  CREATED          STATUS                                  PORTS                      NAMES
+2e7b7febd319   tg-config-bot   "/__cacert_entrypoin…"   32 seconds ago   Restarting (1) Less than a second ago                              tg-config-bot-prod-bot-1
+e83d2728e5fa   postgres:18     "docker-entrypoint.s…"   32 seconds ago   Up 31 seconds (healthy)                 0.0.0.0:5491->5432/tcp     tg-config-bot-prod-db-1
+b51186fbffff   amnezia-awg2    "dumb-init /opt/amne…"   12 hours ago     Up 12 hours                             0.0.0.0:38002->38002/udp   amnezia-awg2

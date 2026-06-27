@@ -42,3 +42,5 @@ build/
 .DS_Store
 
 run_wsl_claude_in_curr_dir.bat
+
+devops-artifacts.zip

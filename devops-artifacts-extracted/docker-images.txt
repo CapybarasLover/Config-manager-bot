@@ -1,0 +1,7 @@
+IMAGE                                    ID             DISK USAGE   CONTENT SIZE   EXTRA
+amnezia-awg2:latest                      aae0a279e0d7         42MB         12.5MB   U    
+amneziavpn/amneziawg-go:latest           acef5ae84808       31.1MB         9.27MB        
+eclipse-temurin:21-jre-alpine            3f08b13888f5        286MB         74.9MB        
+maven:3.9.12-eclipse-temurin-21-alpine   8b2f036477a5        585MB          197MB        
+postgres:18                              4aabea78cf39        650MB          168MB   U    
+tg-config-bot:latest                     905210b62852        366MB          112MB   U    

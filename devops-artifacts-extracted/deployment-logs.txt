@@ -1,0 +1,252 @@
+db-1   | The files belonging to this database system will be owned by user "postgres".
+db-1   | This user must also own the server process.
+db-1   | 
+db-1   | The database cluster will be initialized with locale "en_US.utf8".
+db-1   | The default database encoding has accordingly been set to "UTF8".
+db-1   | The default text search configuration will be set to "english".
+db-1   | 
+db-1   | Data page checksums are enabled.
+db-1   | 
+db-1   | fixing permissions on existing directory /var/lib/postgresql/18/docker ... ok
+db-1   | creating subdirectories ... ok
+db-1   | selecting dynamic shared memory implementation ... posix
+db-1   | selecting default "max_connections" ... 100
+db-1   | selecting default "shared_buffers" ... 128MB
+db-1   | selecting default time zone ... Etc/UTC
+db-1   | creating configuration files ... ok
+db-1   | running bootstrap script ... ok
+db-1   | performing post-bootstrap initialization ... ok
+db-1   | initdb: warning: enabling "trust" authentication for local connections
+db-1   | syncing data to disk ... ok
+db-1   | 
+db-1   | 
+db-1   | Success. You can now start the database server using:
+db-1   | 
+db-1   |     pg_ctl -D /var/lib/postgresql/18/docker -l logfile start
+db-1   | 
+db-1   | initdb: hint: You can change this by editing pg_hba.conf or using the option -A, or --auth-local and --auth-host, the next time you run initdb.
+db-1   | waiting for server to start....2026-06-27 11:07:26.675 UTC [52] LOG:  starting PostgreSQL 18.4 (Debian 18.4-1.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+db-1   | 2026-06-27 11:07:26.675 UTC [52] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+db-1   | 2026-06-27 11:07:26.680 UTC [58] LOG:  database system was shut down at 2026-06-27 11:07:26 UTC
+db-1   | 2026-06-27 11:07:26.683 UTC [52] LOG:  database system is ready to accept connections
+db-1   |  done
+db-1   | server started
+db-1   | CREATE DATABASE
+db-1   | 
+db-1   | 
+db-1   | /usr/local/bin/docker-entrypoint.sh: ignoring /docker-entrypoint-initdb.d/*
+db-1   | 
+db-1   | 2026-06-27 11:07:26.895 UTC [52] LOG:  received fast shutdown request
+db-1   | waiting for server to shut down....2026-06-27 11:07:26.896 UTC [52] LOG:  aborting any active transactions
+db-1   | 2026-06-27 11:07:26.900 UTC [52] LOG:  background worker "logical replication launcher" (PID 61) exited with exit code 1
+db-1   | 2026-06-27 11:07:26.901 UTC [56] LOG:  shutting down
+db-1   | 2026-06-27 11:07:26.901 UTC [56] LOG:  checkpoint starting: shutdown immediate
+db-1   | 2026-06-27 11:07:26.945 UTC [56] LOG:  checkpoint complete: wrote 943 buffers (5.8%), wrote 3 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=0.033 s, sync=0.009 s, total=0.045 s; sync files=303, longest=0.002 s, average=0.001 s; distance=4352 kB, estimate=4352 kB; lsn=0/1B9FBA0, redo lsn=0/1B9FBA0
+db-1   | 2026-06-27 11:07:26.956 UTC [52] LOG:  database system is shut down
+db-1   |  done
+db-1   | server stopped
+db-1   | 
+db-1   | PostgreSQL init process complete; ready for start up.
+db-1   | 
+db-1   | 2026-06-27 11:07:27.022 UTC [1] LOG:  starting PostgreSQL 18.4 (Debian 18.4-1.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+db-1   | 2026-06-27 11:07:27.022 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+db-1   | 2026-06-27 11:07:27.022 UTC [1] LOG:  listening on IPv6 address "::", port 5432
+db-1   | 2026-06-27 11:07:27.023 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+db-1   | 2026-06-27 11:07:27.027 UTC [74] LOG:  database system was shut down at 2026-06-27 11:07:26 UTC
+db-1   | 2026-06-27 11:07:27.031 UTC [1] LOG:  database system is ready to accept connections
+db-1   | 2026-06-27 11:07:35.155 UTC [86] ERROR:  relation "public.databasechangeloglock" does not exist at character 22
+db-1   | 2026-06-27 11:07:35.155 UTC [86] STATEMENT:  SELECT COUNT(*) FROM public.databasechangeloglock
+bot-1  | Jun 27, 2026 11:07:33 AM liquibase.database
+bot-1  | INFO: Set default schema name to public
+bot-1  | Jun 27, 2026 11:07:34 AM liquibase.changelog
+bot-1  | INFO: Creating database changelog table with name: public.databasechangelog
+bot-1  | Jun 27, 2026 11:07:35 AM liquibase.changelog
+bot-1  | INFO: Reading from public.databasechangelog
+bot-1  | Jun 27, 2026 11:07:35 AM liquibase.snapshot
+bot-1  | INFO: Creating snapshot
+bot-1  | Jun 27, 2026 11:07:35 AM liquibase.lockservice
+bot-1  | INFO: Successfully acquired change log lock
+bot-1  | Jun 27, 2026 11:07:35 AM liquibase.command
+bot-1  | INFO: Using deploymentId: 2558453231
+bot-1  | Jun 27, 2026 11:07:35 AM liquibase.changelog
+bot-1  | INFO: Reading from public.databasechangelog
+bot-1  | Running Changeset: db/changeset/create-user-table.sql::create-user-table::petrm
+bot-1  | Jun 27, 2026 11:07:35 AM liquibase.changelog
+bot-1  | INFO: Custom SQL executed
+bot-1  | Jun 27, 2026 11:07:35 AM liquibase.changelog
+bot-1  | INFO: ChangeSet db/changeset/create-user-table.sql::create-user-table::petrm ran successfully in 21ms
+bot-1  | Running Changeset: db/changeset/create-config-table.sql::create-config-table::petrm
+bot-1  | Jun 27, 2026 11:07:35 AM liquibase.changelog
+bot-1  | INFO: Custom SQL executed
+bot-1  | Jun 27, 2026 11:07:35 AM liquibase.changelog
+bot-1  | INFO: ChangeSet db/changeset/create-config-table.sql::create-config-table::petrm ran successfully in 10ms
+bot-1  | Running Changeset: db/changeset/add-xhttp-link.sql::add-xhttp-link-column::petrm
+bot-1  | Jun 27, 2026 11:07:35 AM liquibase.changelog
+bot-1  | INFO: Custom SQL executed
+bot-1  | Jun 27, 2026 11:07:35 AM liquibase.changelog
+bot-1  | INFO: ChangeSet db/changeset/add-xhttp-link.sql::add-xhttp-link-column::petrm ran successfully in 4ms
+bot-1  | Running Changeset: db/changeset/make-vless-nullable.sql::make-vless-link-nullable::petrm
+bot-1  | Jun 27, 2026 11:07:35 AM liquibase.changelog
+bot-1  | INFO: Custom SQL executed
+bot-1  | Jun 27, 2026 11:07:35 AM liquibase.changelog
+bot-1  | INFO: ChangeSet db/changeset/make-vless-nullable.sql::make-vless-link-nullable::petrm ran successfully in 77ms
+bot-1  | Running Changeset: db/changeset/add-country-to-config.sql::add-country-to-config::petrm
+bot-1  | Jun 27, 2026 11:07:35 AM liquibase.changelog
+bot-1  | INFO: Custom SQL executed
+bot-1  | Jun 27, 2026 11:07:35 AM liquibase.changelog
+bot-1  | INFO: ChangeSet db/changeset/add-country-to-config.sql::add-country-to-config::petrm ran successfully in 5ms
+bot-1  | Running Changeset: db/changeset/restructure-config-multi-country.sql::restructure-config-multi-country::petrm
+bot-1  | Jun 27, 2026 11:07:36 AM liquibase.changelog
+bot-1  | INFO: Custom SQL executed
+bot-1  | Jun 27, 2026 11:07:36 AM liquibase.changelog
+bot-1  | INFO: ChangeSet db/changeset/restructure-config-multi-country.sql::restructure-config-multi-country::petrm ran successfully in 96ms
+bot-1  | 
+bot-1  | UPDATE SUMMARY
+bot-1  | Run:                          6
+bot-1  | Previously run:               0
+bot-1  | Filtered out:                 0
+bot-1  | -------------------------------
+bot-1  | Total change sets:            6
+bot-1  | 
+bot-1  | Jun 27, 2026 11:07:36 AM liquibase.util
+bot-1  | INFO: UPDATE SUMMARY
+bot-1  | Jun 27, 2026 11:07:36 AM liquibase.util
+bot-1  | INFO: Run:                          6
+bot-1  | Jun 27, 2026 11:07:36 AM liquibase.util
+bot-1  | INFO: Previously run:               0
+bot-1  | Jun 27, 2026 11:07:36 AM liquibase.util
+bot-1  | INFO: Filtered out:                 0
+bot-1  | Jun 27, 2026 11:07:36 AM liquibase.util
+bot-1  | INFO: -------------------------------
+bot-1  | Jun 27, 2026 11:07:36 AM liquibase.util
+bot-1  | INFO: Total change sets:            6
+bot-1  | Jun 27, 2026 11:07:36 AM liquibase.util
+bot-1  | INFO: Update summary generated
+bot-1  | Jun 27, 2026 11:07:36 AM liquibase.command
+bot-1  | INFO: Update command completed successfully.
+bot-1  | Liquibase: Update has been successful. Rows affected: 0
+bot-1  | Jun 27, 2026 11:07:36 AM liquibase.lockservice
+bot-1  | INFO: Successfully released change log lock
+bot-1  | Jun 27, 2026 11:07:36 AM liquibase.command
+bot-1  | INFO: Command execution complete
+bot-1  | Liquibase: миграции успешно применены!
+bot-1  | Exception in thread "main" java.lang.RuntimeException: Переменная окружения не задана: XUI_API_TOKEN_LATV
+bot-1  | 	at com.petr.panel.PanelConfig.req(PanelConfig.java:66)
+bot-1  | 	at com.petr.panel.PanelConfig.latv(PanelConfig.java:35)
+bot-1  | 	at com.petr.configmanager.ConfigManagerImpl.<init>(ConfigManagerImpl.java:14)
+bot-1  | 	at com.petr.bot.Bot.<init>(Bot.java:30)
+bot-1  | 	at com.petr.Start.main(Start.java:12)
+bot-1  | Jun 27, 2026 11:07:40 AM liquibase.database
+bot-1  | INFO: Set default schema name to public
+bot-1  | Jun 27, 2026 11:07:41 AM liquibase.changelog
+bot-1  | INFO: Reading from public.databasechangelog
+bot-1  | Database is up to date, no changesets to execute
+bot-1  | Jun 27, 2026 11:07:42 AM liquibase.changelog
+bot-1  | INFO: Reading from public.databasechangelog
+bot-1  | 
+bot-1  | UPDATE SUMMARY
+bot-1  | Run:                          0
+bot-1  | Previously run:               6
+bot-1  | Filtered out:                 0
+bot-1  | -------------------------------
+bot-1  | Total change sets:            6
+bot-1  | 
+bot-1  | Jun 27, 2026 11:07:42 AM liquibase.util
+bot-1  | INFO: UPDATE SUMMARY
+bot-1  | Jun 27, 2026 11:07:42 AM liquibase.util
+bot-1  | INFO: Run:                          0
+bot-1  | Jun 27, 2026 11:07:42 AM liquibase.util
+bot-1  | INFO: Previously run:               6
+bot-1  | Jun 27, 2026 11:07:42 AM liquibase.util
+bot-1  | INFO: Filtered out:                 0
+bot-1  | Jun 27, 2026 11:07:42 AM liquibase.util
+bot-1  | INFO: -------------------------------
+bot-1  | Jun 27, 2026 11:07:42 AM liquibase.util
+bot-1  | INFO: Total change sets:            6
+bot-1  | Jun 27, 2026 11:07:42 AM liquibase.util
+bot-1  | INFO: Update summary generated
+bot-1  | Jun 27, 2026 11:07:42 AM liquibase.command
+bot-1  | INFO: Command execution complete
+bot-1  | Liquibase: миграции успешно применены!
+bot-1  | Exception in thread "main" java.lang.RuntimeException: Переменная окружения не задана: XUI_API_TOKEN_LATV
+bot-1  | 	at com.petr.panel.PanelConfig.req(PanelConfig.java:66)
+bot-1  | 	at com.petr.panel.PanelConfig.latv(PanelConfig.java:35)
+bot-1  | 	at com.petr.configmanager.ConfigManagerImpl.<init>(ConfigManagerImpl.java:14)
+bot-1  | 	at com.petr.bot.Bot.<init>(Bot.java:30)
+bot-1  | 	at com.petr.Start.main(Start.java:12)
+bot-1  | Jun 27, 2026 11:07:46 AM liquibase.database
+bot-1  | INFO: Set default schema name to public
+bot-1  | Jun 27, 2026 11:07:47 AM liquibase.changelog
+bot-1  | INFO: Reading from public.databasechangelog
+bot-1  | Database is up to date, no changesets to execute
+bot-1  | Jun 27, 2026 11:07:48 AM liquibase.changelog
+bot-1  | INFO: Reading from public.databasechangelog
+bot-1  | 
+bot-1  | UPDATE SUMMARY
+bot-1  | Run:                          0
+bot-1  | Previously run:               6
+bot-1  | Filtered out:                 0
+bot-1  | -------------------------------
+bot-1  | Total change sets:            6
+bot-1  | 
+bot-1  | Jun 27, 2026 11:07:48 AM liquibase.util
+bot-1  | INFO: UPDATE SUMMARY
+bot-1  | Jun 27, 2026 11:07:48 AM liquibase.util
+bot-1  | INFO: Run:                          0
+bot-1  | Jun 27, 2026 11:07:48 AM liquibase.util
+bot-1  | INFO: Previously run:               6
+bot-1  | Jun 27, 2026 11:07:48 AM liquibase.util
+bot-1  | INFO: Filtered out:                 0
+bot-1  | Jun 27, 2026 11:07:48 AM liquibase.util
+bot-1  | INFO: -------------------------------
+bot-1  | Jun 27, 2026 11:07:48 AM liquibase.util
+bot-1  | INFO: Total change sets:            6
+bot-1  | Jun 27, 2026 11:07:48 AM liquibase.util
+bot-1  | INFO: Update summary generated
+bot-1  | Jun 27, 2026 11:07:48 AM liquibase.command
+bot-1  | INFO: Command execution complete
+bot-1  | Liquibase: миграции успешно применены!
+bot-1  | Exception in thread "main" java.lang.RuntimeException: Переменная окружения не задана: XUI_API_TOKEN_LATV
+bot-1  | 	at com.petr.panel.PanelConfig.req(PanelConfig.java:66)
+bot-1  | 	at com.petr.panel.PanelConfig.latv(PanelConfig.java:35)
+bot-1  | 	at com.petr.configmanager.ConfigManagerImpl.<init>(ConfigManagerImpl.java:14)
+bot-1  | 	at com.petr.bot.Bot.<init>(Bot.java:30)
+bot-1  | 	at com.petr.Start.main(Start.java:12)
+bot-1  | Jun 27, 2026 11:07:52 AM liquibase.database
+bot-1  | INFO: Set default schema name to public
+bot-1  | Jun 27, 2026 11:07:54 AM liquibase.changelog
+bot-1  | INFO: Reading from public.databasechangelog
+bot-1  | Database is up to date, no changesets to execute
+bot-1  | Jun 27, 2026 11:07:54 AM liquibase.changelog
+bot-1  | INFO: Reading from public.databasechangelog
+bot-1  | 
+bot-1  | UPDATE SUMMARY
+bot-1  | Run:                          0
+bot-1  | Previously run:               6
+bot-1  | Filtered out:                 0
+bot-1  | -------------------------------
+bot-1  | Total change sets:            6
+bot-1  | 
+bot-1  | Jun 27, 2026 11:07:54 AM liquibase.util
+bot-1  | INFO: UPDATE SUMMARY
+bot-1  | Jun 27, 2026 11:07:54 AM liquibase.util
+bot-1  | INFO: Run:                          0
+bot-1  | Jun 27, 2026 11:07:54 AM liquibase.util
+bot-1  | INFO: Previously run:               6
+bot-1  | Jun 27, 2026 11:07:54 AM liquibase.util
+bot-1  | INFO: Filtered out:                 0
+bot-1  | Jun 27, 2026 11:07:54 AM liquibase.util
+bot-1  | INFO: -------------------------------
+bot-1  | Jun 27, 2026 11:07:54 AM liquibase.util
+bot-1  | INFO: Total change sets:            6
+bot-1  | Jun 27, 2026 11:07:54 AM liquibase.util
+bot-1  | INFO: Update summary generated
+bot-1  | Jun 27, 2026 11:07:54 AM liquibase.command
+bot-1  | INFO: Command execution complete
+bot-1  | Liquibase: миграции успешно применены!
+bot-1  | Exception in thread "main" java.lang.RuntimeException: Переменная окружения не задана: XUI_API_TOKEN_LATV
+bot-1  | 	at com.petr.panel.PanelConfig.req(PanelConfig.java:66)
+bot-1  | 	at com.petr.panel.PanelConfig.latv(PanelConfig.java:35)
+bot-1  | 	at com.petr.configmanager.ConfigManagerImpl.<init>(ConfigManagerImpl.java:14)
+bot-1  | 	at com.petr.bot.Bot.<init>(Bot.java:30)
+bot-1  | 	at com.petr.Start.main(Start.java:12)
