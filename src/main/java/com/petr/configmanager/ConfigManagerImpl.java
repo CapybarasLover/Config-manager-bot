@@ -2,19 +2,17 @@ package com.petr.configmanager;
 
 import com.petr.db.DbService;
 import com.petr.db.entity.Config;
-import com.petr.panel.dto.PanelClient;
+import com.petr.panel.PanelConfig;
 import com.petr.panel.service.PanelService;
-import com.petr.panel.service.PanelServiceGermImpl;
-import com.petr.panel.service.PanelServiceLatvImpl;
+import com.petr.panel.service.PanelServiceImpl;
 
 import java.io.IOException;
 import java.util.List;
-import java.util.UUID;
 
 public class ConfigManagerImpl implements ConfigManager {
 
-    private final PanelService latvPanelService = new PanelServiceLatvImpl();
-    private final PanelService germPanelService = new PanelServiceGermImpl();
+    private final PanelService latvPanelService = new PanelServiceImpl(PanelConfig.latv());
+    private final PanelService germPanelService = new PanelServiceImpl(PanelConfig.germ());
     private final DbService dbService = new DbService();
 
     private PanelService panelFor(String country) {
@@ -27,64 +25,52 @@ public class ConfigManagerImpl implements ConfigManager {
     }
 
     @Override
-    public String[] getConfigs(Long userId, String username, String configType, String country)
+    public String[] getConfigs(Long userId, String configName, String configType, String country)
             throws IOException, InterruptedException {
 
         String effectiveCountry = nvl(country, "latv");
+        ConfigType type = ConfigType.fromString(nvl(configType, "ws"));
 
         boolean hasAccepted = dbService.userHasAcceptedConfig(userId);
         boolean hasConfigForCountry = dbService.userHasConfig(userId, effectiveCountry);
 
+        // Уже одобрен и есть конфиг для этой страны — возможно, докинуть недостающий тип
         if (hasAccepted && hasConfigForCountry) {
             String[] existing = dbService.getConfigsByIdAndCountry(userId, effectiveCountry);
 
             boolean hasWs = existing.length > 0 && existing[0] != null;
             boolean hasXhttp = existing.length > 2 && existing[2] != null;
 
-            boolean wantWs = "ws".equals(configType) || "both".equals(configType);
-            boolean wantXhttp = "xhttp".equals(configType) || "both".equals(configType);
-
-            boolean needWs = wantWs && !hasWs;
-            boolean needXhttp = wantXhttp && !hasXhttp;
+            boolean needWs = type.includesWs() && !hasWs;
+            boolean needXhttp = type.includesXhttp() && !hasXhttp;
 
             if (!needWs && !needXhttp) {
                 return existing;
             }
 
-            String createType = (needWs && needXhttp) ? "both" : (needWs ? "ws" : "xhttp");
-            UUID reusedSubUuid = extractSubUuid(existing.length > 1 ? existing[1] : null);
-
             String nameToUse = dbService.getConfigName(userId, effectiveCountry);
             if (nameToUse == null || nameToUse.isBlank()) {
-                nameToUse = username;
+                nameToUse = configName;
             }
 
-            String[] panelResult = panelFor(effectiveCountry)
-                    .createClient(nameToUse, userId, createType, reusedSubUuid);
+            // Панель сама создаст/привяжет недостающие inbound'ы под одним UUID/subId
+            String[] panelResult = panelFor(effectiveCountry).createClient(nameToUse, userId, type);
 
-            if (needXhttp && !needWs) {
-                dbService.updateXhttpLink(userId, effectiveCountry, panelResult[2]);
-            } else {
-                dbService.setConfig(
-                        userId,
-                        nameToUse,
-                        panelResult[0],
-                        panelResult[1],
-                        needXhttp ? panelResult[2] : (existing.length > 2 ? existing[2] : null),
-                        effectiveCountry
-                );
-            }
+            String ws = panelResult[0] != null ? panelResult[0] : (existing.length > 0 ? existing[0] : null);
+            String sub = panelResult[1] != null ? panelResult[1] : (existing.length > 1 ? existing[1] : null);
+            String xhttp = panelResult[2] != null ? panelResult[2] : (existing.length > 2 ? existing[2] : null);
 
+            dbService.setConfig(userId, nameToUse, ws, sub, xhttp, effectiveCountry);
             return dbService.getConfigsByIdAndCountry(userId, effectiveCountry);
         }
 
+        // Первый запрос для этой страны — создаём клиента, ждём одобрения админом
         if (!hasConfigForCountry) {
-            String[] panelResult = panelFor(effectiveCountry)
-                    .createClient(username, userId, configType, null);
+            String[] panelResult = panelFor(effectiveCountry).createClient(configName, userId, type);
 
             dbService.setConfig(
                     userId,
-                    username,
+                    configName,
                     panelResult[0],
                     panelResult[1],
                     panelResult[2],
@@ -185,17 +171,5 @@ public class ConfigManagerImpl implements ConfigManager {
 
     private static String nvl(String v, String def) {
         return (v != null && !v.isBlank()) ? v : def;
-    }
-
-    private static UUID extractSubUuid(String subLink) {
-        if (subLink == null || subLink.isBlank()) {
-            return null;
-        }
-        try {
-            String uuidStr = subLink.substring(subLink.lastIndexOf('/') + 1).trim();
-            return UUID.fromString(uuidStr);
-        } catch (Exception e) {
-            return null;
-        }
     }
 }

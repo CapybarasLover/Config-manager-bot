@@ -64,8 +64,10 @@ services:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_DB: ${DB_NAME}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "5491:5432"   # непопулярный хост-порт (5432/5433/5434 заняты другими БД)
     volumes:
-      - db-data:/var/lib/postgresql
+      - pgdata:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
@@ -82,7 +84,7 @@ services:
       - postgres
 
 volumes:
-  db-data:
+  pgdata:
   pgadmin-data:
 
 networks:
