@@ -82,17 +82,18 @@ jobs:
 
       - name: Docker Compose
         run: |
-          docker compose down --remove-orphans || true
-          docker compose up --build -d
+          docker compose down --remove-orphans || docker-compose down --remove-orphans || true
+          docker compose up --build -d || docker-compose up --build -d
           sleep 20
-          docker compose ps
+          docker compose ps || docker-compose ps
 
       - name: Wait for backend healthy
         run: |
           set -e
           echo "Waiting for bot container to be healthy..."
           for i in {1..30}; do
-            STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$(docker compose ps -q bot)" 2>/dev/null || echo "starting")
+            BOT_ID=$(docker compose ps -q bot 2>/dev/null || docker-compose ps -q bot 2>/dev/null || true)
+            STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$BOT_ID" 2>/dev/null || echo "starting")
             echo "Attempt $i: status=$STATUS"
             if [ "$STATUS" = "healthy" ]; then
               echo "Bot is healthy!"
@@ -114,6 +115,8 @@ jobs:
         run: |
           set -e
           COUNT=$(docker compose exec -T db \
+            psql -U "$DB_USER" -d "$DB_NAME" -t -A -c "SELECT COUNT(*) FROM tg_user;" \
+            || docker-compose exec -T db \
             psql -U "$DB_USER" -d "$DB_NAME" -t -A -c "SELECT COUNT(*) FROM tg_user;")
           echo "Rows in tg_user: $COUNT"
           echo "$COUNT" > db-count.txt
