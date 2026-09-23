@@ -11,38 +11,50 @@ public class PanelConfig {
     public final String apiToken;       // API-токен панели (Authorization: Bearer)
     public final int wsInbound;         // ID WS inbound'а
     public final Integer xhttpInbound;  // ID XHTTP inbound'а; null → XHTTP не используется
+    public final Integer realityInbound;  // ID Reality inbound'а (добавляется всем клиентам); null → не используется
     public final String subBaseUrl;     // база ссылки подписки (оканчивается на "/")
 
     public PanelConfig(String label, String baseUrl, String apiToken,
-                       int wsInbound, Integer xhttpInbound, String subBaseUrl) {
+                       int wsInbound, Integer xhttpInbound, Integer realityInbound, String subBaseUrl) {
         this.label = label;
         this.baseUrl = normalizeSlash(baseUrl);
         this.apiToken = apiToken;
         this.wsInbound = wsInbound;
         this.xhttpInbound = xhttpInbound;
+        this.realityInbound = realityInbound;
         this.subBaseUrl = normalizeSlash(subBaseUrl);
     }
 
-    /** Латвийская панель. WS inbound: env (по умолчанию prod=2, dev=3). XHTTP inbound — из env (опционально). */
+    /**
+     * Латвийская панель (Рига). WS inbound: env (по умолчанию prod=2, dev=3). XHTTP на Риге нет.
+     * Reality inbound: LATV_REALITY_INBOUND_PROD/DEV (по умолчанию prod=8, в dev — выключен).
+     */
     public static PanelConfig latv() {
         boolean dev = "dev".equals(System.getProperty("app.env"));
         int ws = parseOr(env(dev ? "LATV_WS_INBOUND_DEV" : "LATV_WS_INBOUND_PROD"), dev ? 3 : 2);
-        Integer xhttp = parseOrNull(env(dev ? "LATV_XHTTP_INBOUND_DEV" : "LATV_XHTTP_INBOUND_PROD"));
+        Integer reality = dev
+                ? parseOrNull(env("LATV_REALITY_INBOUND_DEV"))
+                : parseOrDisabled(env("LATV_REALITY_INBOUND_PROD"), 8);
         String sub = nvl(env("LATV_SUB_BASE_URL"), "https://petromerzlikino.site:2096/sub/");
         return new PanelConfig(
                 "Latv",
                 req("LATV_PANEL_HOME_URL"),
                 req("XUI_API_TOKEN_LATV"),
                 ws,
-                xhttp,
+                null, // XHTTP на Риге больше нет
+                reality,
                 sub
         );
     }
 
-    /** Германская панель. WS inbound: 3 (env GERM_WS_INBOUND), XHTTP inbound: 2 (env GERM_XHTTP_INBOUND). */
+    /**
+     * Германская панель. WS inbound: 3 (env GERM_WS_INBOUND), XHTTP inbound: 2 (env GERM_XHTTP_INBOUND),
+     * Reality inbound: 5 (env GERM_REALITY_INBOUND).
+     */
     public static PanelConfig germ() {
         int ws = parseOr(env("GERM_WS_INBOUND"), 3);
         Integer xhttp = parseOr(env("GERM_XHTTP_INBOUND"), 2);
+        Integer reality = parseOrDisabled(env("GERM_REALITY_INBOUND"), 5);
         String sub = nvl(env("GERM_SUB_BASE_URL"), "");
         return new PanelConfig(
                 "Germ",
@@ -50,6 +62,7 @@ public class PanelConfig {
                 req("XUI_API_TOKEN_GERM"),
                 ws,
                 xhttp,
+                reality,
                 sub
         );
     }
@@ -83,6 +96,15 @@ public class PanelConfig {
 
     private static int parseOr(String v, int def) {
         Integer parsed = parseOrNull(v);
+        return parsed != null ? parsed : def;
+    }
+
+    /** Пусто → значение по умолчанию; "0"/"none"/"off" → null (inbound выключен). */
+    private static Integer parseOrDisabled(String v, int def) {
+        if (v == null || v.isBlank()) return def;
+        String t = v.trim().toLowerCase();
+        if (t.equals("0") || t.equals("none") || t.equals("off")) return null;
+        Integer parsed = parseOrNull(t);
         return parsed != null ? parsed : def;
     }
 

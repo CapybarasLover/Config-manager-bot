@@ -16,7 +16,7 @@ public class ConfigDao {
         this.sessionFactory = HibernateSessionFactoryUtil.getSessionFactory();
     }
 
-    public void saveConfig(Long tgId, String configName, String vlessLink, String subLink, String xhttpLink, String country) {
+    public void saveConfig(Long tgId, String configName, String vlessLink, String subLink, String xhttpLink, String realityLink, String country) {
         String resolvedCountry = (country != null && !country.isBlank()) ? country : "latv";
 
         try (Session session = this.sessionFactory.openSession()) {
@@ -42,6 +42,7 @@ public class ConfigDao {
                 config.setVlessLink(vlessLink);
                 config.setSubLink(subLink);
                 config.setXhttpLink(xhttpLink);
+                config.setRealityLink(realityLink);
                 config.setCountry(resolvedCountry);
                 session.persist(config);
             } else {
@@ -49,6 +50,7 @@ public class ConfigDao {
                 existing.setVlessLink(vlessLink);
                 existing.setSubLink(subLink);
                 existing.setXhttpLink(xhttpLink);
+                existing.setRealityLink(realityLink);
                 existing.setCountry(resolvedCountry);
             }
 

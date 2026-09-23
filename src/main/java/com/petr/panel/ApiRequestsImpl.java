@@ -212,6 +212,26 @@ public class ApiRequestsImpl implements ApiRequests {
     }
 
     @Override
+    public JsonNode getInbound(int inboundId) throws IOException, InterruptedException {
+        return executeWithRetry(() -> {
+            URI url = baseUri.resolve("panel/api/inbounds/get/" + inboundId);
+
+            HttpResponse<String> response = client.send(authed(url).GET().build(), HttpResponse.BodyHandlers.ofString());
+            System.out.println(tag + " getInbound id=" + inboundId + " status=" + response.statusCode());
+
+            if (response.statusCode() != 200) {
+                throw new RequestException("HTTP " + response.statusCode() + " body=" + response.body(), response.statusCode());
+            }
+
+            JsonNode json = mapper.readTree(response.body());
+            if (!json.path("success").asBoolean(false)) {
+                return null; // inbound'а нет
+            }
+            return json.path("obj");
+        });
+    }
+
+    @Override
     public HttpResponse<String> getInboundsList() throws IOException, InterruptedException {
         return executeWithRetry(() -> {
             URI url = baseUri.resolve("panel/api/inbounds/list");

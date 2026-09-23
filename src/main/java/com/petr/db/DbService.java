@@ -32,8 +32,8 @@ public class DbService {
         return "Пользователь добавлен успешно!";
     }
 
-    public String setConfig(Long tgId, String configName, String vlessLink, String subLink, String xhttpLink, String country) {
-        configDao.saveConfig(tgId, configName, vlessLink, subLink, xhttpLink, country);
+    public String setConfig(Long tgId, String configName, String vlessLink, String subLink, String xhttpLink, String realityLink, String country) {
+        configDao.saveConfig(tgId, configName, vlessLink, subLink, xhttpLink, realityLink, country);
         return "Конфиг сохранен успешно!";
     }
 
@@ -60,7 +60,7 @@ public class DbService {
     }
 
     /**
-     * Возвращает [wsLink, subLink, xhttpLink]. wsLink и xhttpLink могут быть null.
+     * Возвращает [wsLink, subLink, xhttpLink, realityLink]. wsLink/xhttpLink/realityLink могут быть null.
      * Возвращает пустой массив если конфига нет.
      */
     public String[] getConfigsByIdAndCountry(Long tgId, String country) {
@@ -68,7 +68,7 @@ public class DbService {
         if (config == null) {
             return new String[]{};
         }
-        return new String[]{config.getVlessLink(), config.getSubLink(), config.getXhttpLink()};
+        return new String[]{config.getVlessLink(), config.getSubLink(), config.getXhttpLink(), config.getRealityLink()};
     }
 
     public List<Config> getAllConfigsByUserId(Long tgId) {
@@ -165,16 +165,18 @@ public class DbService {
                 }
             }
 
+            // Панель — источник истины: ссылки обновляем и у уже существующих конфигов
             Config existing = configDao.getConfigByUserIdAndCountry(tgId, effectiveCountry);
+            configDao.saveConfig(
+                    tgId,
+                    client.getConfigName(),
+                    client.getVlessLink(),
+                    client.getSubLink() != null ? client.getSubLink() : (existing != null ? existing.getSubLink() : null),
+                    client.getXhttpLink(),
+                    client.getRealityLink(),
+                    effectiveCountry
+            );
             if (existing == null) {
-                configDao.saveConfig(
-                        tgId,
-                        client.getConfigName(),
-                        client.getVlessLink(),
-                        client.getSubLink(),
-                        client.getXhttpLink(),
-                        effectiveCountry
-                );
                 configsSaved++;
             }
         }

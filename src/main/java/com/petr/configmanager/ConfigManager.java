@@ -1,6 +1,7 @@
 package com.petr.configmanager;
 
 import java.io.IOException;
+import java.util.Map;
 
 public interface ConfigManager {
     String getAllConfigs() throws IOException, InterruptedException;
@@ -8,7 +9,8 @@ public interface ConfigManager {
     String[] getConfigs(Long userId, String username, String configType, String country)
             throws IOException, InterruptedException;
 
-    String[] getConfigs(Long userId) throws IOException, InterruptedException;
+    /** Одобренные конфиги пользователя по всем странам: country → [ws, sub, xhttp, reality]. Пусто, если не одобрен. */
+    Map<String, String[]> getConfigs(Long userId) throws IOException, InterruptedException;
 
     String getExistingConfigName(Long userId);
 

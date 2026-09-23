@@ -246,7 +246,7 @@ public class Bot {
             String configName = base + CONFIG_NAME_SUFFIX;
             try {
                 String[] configs = configManager.getConfigs(message.chat.id, configName, configType, country);
-                sendConfigResult(bot, message.chat.id, configs, configName, editMsgId);
+                sendConfigResult(bot, message.chat.id, country, configs, configName, editMsgId);
             } catch (Exception e) {
                 String errText = "Ошибка при создании конфига:\n" + e.getMessage() +
                         "\n\nОбратитесь к администратору.";
@@ -276,12 +276,8 @@ public class Bot {
         @CallbackHandler(data = "country:latv")
         void onCallbackCountryLatv(BotContext bot, CallbackQuery query) {
             bot.answerCallbackQuery(query.id).exec();
-            long chatId = query.from.id;
-            int msgId = query.message.message_id;
-            pendingCountry.put(chatId, "latv");
-            awaitingMessageId.put(chatId, msgId);
-            bot.editMessageText("Выбери тип конфига:", chatId, msgId)
-                    .replyMarkup(configTypeKeyboard()).exec();
+            // На Риге нет XHTTP — выбирать тип не из чего: WS (+ Reality добавится автоматически)
+            requestConfig(bot, query, "ws", "latv");
         }
 
         @CallbackHandler(data = "country:germ")
@@ -305,12 +301,19 @@ public class Bot {
         }
 
         @CallbackHandler(regex = "config_type:.*")
-        void onCallbackConfigType(BotContext bot, CallbackQuery query) throws IOException, InterruptedException {
+        void onCallbackConfigType(BotContext bot, CallbackQuery query) {
             bot.answerCallbackQuery(query.id).exec();
+            String configType = query.data.split(":")[1];
+            String country = pendingCountry.getOrDefault(query.from.id, "latv");
+            requestConfig(bot, query, configType, country);
+        }
+
+        /** Создаёт/дополняет конфиг; если нет подходящего @username — просит ввести имя. */
+        private void requestConfig(BotContext bot, CallbackQuery query, String configType, String country) {
             long chatId = query.from.id;
             int msgId = query.message.message_id;
-            String configType = query.data.split(":")[1];
-            String country = pendingCountry.getOrDefault(chatId, "latv");
+            pendingCountry.put(chatId, country);
+            awaitingMessageId.put(chatId, msgId);
 
             String username = query.from.username;
             if (username != null && !username.isBlank()) {
@@ -319,7 +322,7 @@ public class Bot {
                     String[] configs = configManager.getConfigs(chatId, configName, configType, country);
                     pendingConfigType.remove(chatId);
                     pendingCountry.remove(chatId);
-                    sendConfigResult(bot, chatId, configs, configName, msgId);
+                    sendConfigResult(bot, chatId, country, configs, configName, msgId);
                     return;
                 } catch (IllegalArgumentException ignored) {
                 } catch (Exception e) {
@@ -339,7 +342,7 @@ public class Bot {
                     String[] configs = configManager.getConfigs(chatId, existingName, configType, country);
                     pendingConfigType.remove(chatId);
                     pendingCountry.remove(chatId);
-                    sendConfigResult(bot, chatId, configs, existingName, msgId);
+                    sendConfigResult(bot, chatId, country, configs, existingName, msgId);
                     return;
                 } catch (Exception e) {
                     pendingConfigType.remove(chatId);
@@ -379,9 +382,9 @@ public class Bot {
             bot.answerCallbackQuery(query.id).exec();
             long chatId = query.from.id;
             int msgId = query.message.message_id;
-            String[] configs = configManager.getConfigs(chatId);
-            if (configs.length > 0) {
-                bot.editMessageText(formatConfigLinks(configs), chatId, msgId)
+            Map<String, String[]> configs = configManager.getConfigs(chatId);
+            if (!configs.isEmpty()) {
+                bot.editMessageText(formatAllConfigLinks(configs), chatId, msgId)
                         .parseMode(ParseMode.MARKDOWN).exec();
             } else {
                 bot.editMessageText(
@@ -447,9 +450,9 @@ public class Bot {
             long userChatId = Long.parseLong(query.data.split(":")[1]);
             bot.answerCallbackQuery(query.id, "Одобрено!").exec();
             configManager.acceptConfig(userChatId);
-            String[] configs = configManager.getConfigs(userChatId);
-            if (configs.length > 0) {
-                bot.sendMessage(userChatId, formatConfigLinks(configs))
+            Map<String, String[]> configs = configManager.getConfigs(userChatId);
+            if (!configs.isEmpty()) {
+                bot.sendMessage(userChatId, formatAllConfigLinks(configs))
                         .parseMode(ParseMode.MARKDOWN).exec();
             }
 
@@ -539,7 +542,7 @@ public class Bot {
             }
         }
 
-        private void sendConfigResult(BotContext bot, long chatId, String[] configs,
+        private void sendConfigResult(BotContext bot, long chatId, String country, String[] configs,
                                       String configName, Integer editMsgId) {
             if (configs.length == 0) {
                 String text = "Заявка отправлена!\n\nКонфиг создан и ожидает подтверждения администратора.\nКогда одобрят — нажми кнопку ниже или придёт уведомление.";
@@ -552,7 +555,7 @@ public class Bot {
 
                 notifyAdmins(bot, chatId, configName);
             } else {
-                String text = formatConfigLinks(configs);
+                String text = "Ваши конфиги готовы!\n\n" + formatConfigLinks(country, configs);
                 if (editMsgId != null) {
                     bot.editMessageText(text, chatId, editMsgId)
                             .parseMode(ParseMode.MARKDOWN).exec();
@@ -589,8 +592,20 @@ public class Bot {
             }
         }
 
-        private static String formatConfigLinks(String[] configs) {
-            StringBuilder sb = new StringBuilder("Ваши конфиги готовы!\n\nПодписка:\n`")
+        /** Конфиги всех стран пользователя (для «Проверить статус» и уведомления об одобрении). */
+        private static String formatAllConfigLinks(Map<String, String[]> byCountry) {
+            StringBuilder sb = new StringBuilder("Ваши конфиги готовы!");
+            byCountry.forEach((country, configs) ->
+                    sb.append("\n\n").append(formatConfigLinks(country, configs)));
+            return sb.toString();
+        }
+
+        private static String countryTitle(String country) {
+            return "germ".equals(country) ? "🇩🇪 Германия" : "🇱🇻 Латвия";
+        }
+
+        private static String formatConfigLinks(String country, String[] configs) {
+            StringBuilder sb = new StringBuilder("*").append(countryTitle(country)).append("*\n\nПодписка:\n`")
                     .append(configs[1]).append("`");
 
             if (configs[0] != null) {
@@ -599,6 +614,10 @@ public class Bot {
 
             if (configs.length > 2 && configs[2] != null) {
                 sb.append("\n\nxHTTP конфиг:\n`").append(configs[2]).append("`");
+            }
+
+            if (configs.length > 3 && configs[3] != null) {
+                sb.append("\n\nReality конфиг:\n`").append(configs[3]).append("`");
             }
 
             return sb.toString();

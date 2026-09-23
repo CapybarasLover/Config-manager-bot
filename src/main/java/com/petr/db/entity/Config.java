@@ -38,6 +38,9 @@ public class Config {
     @Column(name = "xhttp_link")
     private String xhttpLink;
 
+    @Column(name = "reality_link")
+    private String realityLink;
+
     @Column(name = "country", nullable = false, length = 10)
     private String country = "latv";
 

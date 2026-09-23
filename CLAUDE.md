@@ -15,8 +15,8 @@ java -Dapp.env=dev -jar target/Config_bot-2.0-SNAPSHOT.jar
 # Run in production
 java -Dapp.env=prod -jar target/Config_bot-2.0-SNAPSHOT.jar
 
-# One-off: merge WS+XHTTP inbounds into the client-centric model (attaches the
-# XHTTP inbound to every WS client; idempotent; never deletes anything)
+# One-off: merge inbounds into the client-centric model (attaches the XHTTP inbound
+# to every WS client and the Reality inbound to every bot client; idempotent; never deletes anything)
 java -Dapp.env=prod -cp target/Config_bot-2.0-SNAPSHOT.jar com.petr.tools.MergeInbounds
 # optional arg: latv | germ | both (default both)
 ```
@@ -45,11 +45,12 @@ Copy `.env.example` → `.env` and fill all values before running.
 | `GERM_SUB_BASE_URL` | Germany subscription base URL (e.g. `https://host:2096/sub/`) |
 | `GERM_WS_INBOUND` | Germany WS inbound ID (optional, default `3`) |
 | `GERM_XHTTP_INBOUND` | Germany XHTTP inbound ID (optional, default `2`) |
+| `GERM_REALITY_INBOUND` | Germany Reality inbound ID, attached to every client (optional, default `5`; `0` disables) |
+| `LATV_REALITY_INBOUND_PROD` | Latvian Reality inbound ID in prod (optional, default `8`; `0` disables) |
+| `LATV_REALITY_INBOUND_DEV` | Latvian Reality inbound ID in dev (optional; if absent, disabled) |
 | `LATV_SUB_BASE_URL` | Latvian subscription base URL (optional, default `https://petromerzlikino.site:2096/sub/`) |
 | `LATV_WS_INBOUND_PROD` | Latvian WS inbound ID in prod (optional, default `2`) |
 | `LATV_WS_INBOUND_DEV` | Latvian WS inbound ID in dev (optional, default `3`) |
-| `LATV_XHTTP_INBOUND_PROD` | Latvian XHTTP inbound ID in prod (optional; if absent, XHTTP is skipped) |
-| `LATV_XHTTP_INBOUND_DEV` | Latvian XHTTP inbound ID in dev (optional; if absent, XHTTP is skipped) |
 | `DB_LINK_PROD` / `DB_LINK_DEV` | JDBC URLs for prod/dev PostgreSQL |
 | `DB_USER` / `DB_PASSWORD` / `DB_NAME` | PostgreSQL credentials |
 | `ADMIN_CHATS` | Comma-separated Telegram chat IDs of admins (1 or more) |
@@ -77,7 +78,7 @@ Bot.java  (telebof: @MessageHandler + @CallbackHandler)
 
 **`isAdmin` filter** — `CustomFilter` that checks `ADMIN_CHATS` env var for both `Message` updates and `CallbackQuery` updates (handles both types). Logs every check.
 
-**Client-centric model (3x-ui ≥ v3.2.5):** clients are standalone entities under
+**Client-centric model (3x-ui ≥ v3.2.5, verified against v3.8.5):** clients are standalone entities under
 `/panel/api/clients/*`. One Telegram user → **one client** (one UUID, one email,
 one subId) attached to multiple inbounds (WS + XHTTP). The subscription
 `/sub/{subId}` then aggregates both protocol links automatically. The old model
@@ -88,16 +89,16 @@ subId across different emails is rejected.
 and service logic — they differ only by configuration. There is no Latv/Germ code
 fork anymore:
 - **`PanelConfig`** — holds one panel's settings (label, baseUrl, credentials,
-  `wsInbound`, `xhttpInbound` (nullable → XHTTP disabled), `subBaseUrl`). Factories
+  `wsInbound`, `xhttpInbound` (nullable → XHTTP disabled), `realityInbound` (nullable; attached to **every** client regardless of ConfigType, so it lands in the subscription), `subBaseUrl`). Factories
   `PanelConfig.latv()` / `PanelConfig.germ()` build these from env.
-  - Latv: WS inbound from `LATV_WS_INBOUND_PROD/DEV` (default prod=`2`/dev=`3`); XHTTP inbound from `LATV_XHTTP_INBOUND_PROD/DEV` (optional → XHTTP skipped); sub base from `LATV_SUB_BASE_URL` (default `https://petromerzlikino.site:2096/sub/`).
-  - Germ: WS inbound `GERM_WS_INBOUND` (default `3`), XHTTP inbound `GERM_XHTTP_INBOUND` (default `2`), sub base `GERM_SUB_BASE_URL`.
+  - Latv: WS inbound from `LATV_WS_INBOUND_PROD/DEV` (default prod=`2`/dev=`3`); **no XHTTP** (removed from the Riga server; hard-coded `null`, the user skips the config-type choice); Reality inbound `LATV_REALITY_INBOUND_PROD` (default `8`); sub base from `LATV_SUB_BASE_URL` (default `https://petromerzlikino.site:2096/sub/`).
+  - Germ: WS inbound `GERM_WS_INBOUND` (default `3`), XHTTP inbound `GERM_XHTTP_INBOUND` (default `2`), Reality inbound `GERM_REALITY_INBOUND` (default `5`), sub base `GERM_SUB_BASE_URL`.
 - **`ApiRequestsImpl`** (one class for all panels) — HTTP client (forced HTTP/1.1). Authenticates with the panel **API token** via `Authorization: Bearer <token>` on every request — no login/session/cookies/CSRF (the panel skips CSRF for Bearer-authed, non-browser callers). `executeWithRetry` retries up to 2× on `RequestException`. Client endpoints (`add`/`attach`/`del`/`get`/`links`/`list`) send/receive **JSON** (`application/json`).
-- **`PanelServiceImpl`** (one class for all panels) — `createClient(email, tgId, ConfigType)` is **create-or-attach**: no client → create in target inbounds; client exists → attach the missing inbounds, reusing its UUID/subId. Returns `String[]{wsLink, subLink, xhttpLink}` (nulls allowed); ws/xhttp links are fetched from the panel (`links/{email}`) and classified — anything with `type=xhttp`/`type=splithttp` is the xHTTP link, everything else is the WS link (so WS is never dropped). `deleteClient(email)` removes the client from all inbounds in one call.
+- **`PanelServiceImpl`** (one class for all panels) — `createClient(email, tgId, ConfigType)` is **create-or-attach**: no client → create in target inbounds; client exists → attach the missing inbounds, reusing its UUID/subId. Returns `String[]{wsLink, subLink, xhttpLink, realityLink}` (nulls allowed); links are fetched from the panel (`links/{email}`) and classified by matching the link port against each inbound's port (`GET inbounds/get/{id}`), falling back to `type=xhttp`/`splithttp` → xHTTP, `type=ws` → WS, else → Reality. `deleteClient(email)` removes the client from all inbounds in one call.
 
-**`ConfigManagerImpl`** — Builds `new PanelServiceImpl(PanelConfig.latv())` and `new PanelServiceImpl(PanelConfig.germ())`. Dispatches to the correct panel based on `country` param ("latv" / "germ"). Country stored in DB `config.country` column.
+**`ConfigManagerImpl`** — `getConfigs(...)` always calls the panel's create-or-attach (never decides from DB links what is missing), then overwrites the DB links with what the panel returns. Builds `new PanelServiceImpl(PanelConfig.latv())` and `new PanelServiceImpl(PanelConfig.germ())`. Dispatches to the correct panel based on `country` param ("latv" / "germ"). Country stored in DB `config.country` column.
 
-**`MergeInbounds`** (`com.petr.tools.MergeInbounds`) — one-off migration script. Reads `inbounds/list`, and for every WS-inbound client with a `tgId`, attaches the XHTTP inbound to that same client (so its single UUID/subId lives in both inbounds). Leaves old separate `_xhttp` clients untouched. Idempotent.
+**`MergeInbounds`** (`com.petr.tools.MergeInbounds`) — one-off migration script. Reads `clients/list` (which includes each client's `inboundIds`); for every bot client (`_config` suffix or non-zero `tgId`) attaches the XHTTP inbound if it is in the WS inbound, and the Reality inbound always. Leaves old separate `_xhttp` clients untouched. Idempotent.
 
 **`DbService`** — Facade over `UserDao` + `ConfigDao`. User status: `"w"` = waiting/no config, `"a"` = approved.
 
@@ -123,6 +124,7 @@ fork anymore:
 | `vless_link` | TEXT | WS VLESS link |
 | `sub_link` | TEXT | Subscription URL |
 | `xhttp_link` | TEXT | XHTTP VLESS link (nullable — old configs don't have it) |
+| `reality_link` | TEXT | Reality link (nullable) |
 | `country` | VARCHAR(10) | `"latv"` or `"germ"` — determines which panel to use for delete |
 
 Liquibase changesets: `src/main/resources/db/changeset/` (SQL format, master: `db.changelog-master.yaml`).
@@ -140,7 +142,7 @@ User configs are named `{base}_config` (e.g. `petr_config`). The `_config` suffi
    [ 🇱🇻 Латвия ] [ 🇩🇪 Германия ]
    [     Отмена     ]
    ```
-3. **[🇱🇻 Латвия]** → directly shows config type keyboard
+3. **[🇱🇻 Латвия]** → no type choice (Riga has only WS + Reality) → goes straight to step 5
    **[🇩🇪 Германия]** → shows torrent warning with **[✅ Принимаю условия]** / **[❌ Отмена]**
 4. **[Принимаю условия]** → shows config type keyboard (WS / xHTTP / Оба)
 5. Config type chosen:

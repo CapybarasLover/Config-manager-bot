@@ -17,8 +17,10 @@ public interface PanelService {
      * inbound'ы привязываются (attach), UUID/subId переиспользуются.
      *
      * @param email конечный email клиента на панели (он же config_name)
+     * Доп. inbound (если настроен) привязывается всегда, независимо от type.
+     *
      * @param type  WS / XHTTP / BOTH
-     * @return [wsVlessLink, subLink, xhttpVlessLink] — null для отсутствующих типов
+     * @return [wsLink, subLink, xhttpLink, realityLink] — null для отсутствующих
      */
     String[] createClient(String email, long tgId, ConfigType type)
             throws IOException, InterruptedException;
@@ -30,9 +32,9 @@ public interface PanelService {
     List<PanelClient> getClients() throws IOException, InterruptedException;
 
     /**
-     * Разовое объединение inbound'ов: привязывает каждого WS-клиента (с tgId)
-     * к XHTTP-inbound'у, приводя его к client-centric модели. Старые отдельные
-     * XHTTP-клиенты не трогает. Возвращает отчёт.
+     * Разовое объединение inbound'ов: привязывает каждого WS-клиента бота
+     * к XHTTP-inbound'у, а всех клиентов бота — к Reality inbound'у (попадает в
+     * подписку). Ничего не удаляет, идемпотентно. Возвращает отчёт.
      */
     String mergeInbounds() throws IOException, InterruptedException;
 }

@@ -7,7 +7,9 @@ import com.petr.panel.service.PanelService;
 import com.petr.panel.service.PanelServiceImpl;
 
 import java.io.IOException;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 public class ConfigManagerImpl implements ConfigManager {
 
@@ -31,71 +33,50 @@ public class ConfigManagerImpl implements ConfigManager {
         String effectiveCountry = nvl(country, "latv");
         ConfigType type = ConfigType.fromString(nvl(configType, "ws"));
 
-        boolean hasAccepted = dbService.userHasAcceptedConfig(userId);
         boolean hasConfigForCountry = dbService.userHasConfig(userId, effectiveCountry);
 
-        // Уже одобрен и есть конфиг для этой страны — возможно, докинуть недостающий тип
-        if (hasAccepted && hasConfigForCountry) {
-            String[] existing = dbService.getConfigsByIdAndCountry(userId, effectiveCountry);
-
-            boolean hasWs = existing.length > 0 && existing[0] != null;
-            boolean hasXhttp = existing.length > 2 && existing[2] != null;
-
-            boolean needWs = type.includesWs() && !hasWs;
-            boolean needXhttp = type.includesXhttp() && !hasXhttp;
-
-            if (!needWs && !needXhttp) {
-                return existing;
-            }
-
-            String nameToUse = dbService.getConfigName(userId, effectiveCountry);
-            if (nameToUse == null || nameToUse.isBlank()) {
-                nameToUse = configName;
-            }
-
-            // Панель сама создаст/привяжет недостающие inbound'ы под одним UUID/subId
-            String[] panelResult = panelFor(effectiveCountry).createClient(nameToUse, userId, type);
-
-            String ws = panelResult[0] != null ? panelResult[0] : (existing.length > 0 ? existing[0] : null);
-            String sub = panelResult[1] != null ? panelResult[1] : (existing.length > 1 ? existing[1] : null);
-            String xhttp = panelResult[2] != null ? panelResult[2] : (existing.length > 2 ? existing[2] : null);
-
-            dbService.setConfig(userId, nameToUse, ws, sub, xhttp, effectiveCountry);
-            return dbService.getConfigsByIdAndCountry(userId, effectiveCountry);
+        // Имя берём из БД, если конфиг уже есть — иначе клиент на панели «раздвоится»
+        String nameToUse = hasConfigForCountry ? dbService.getConfigName(userId, effectiveCountry) : null;
+        if (nameToUse == null || nameToUse.isBlank()) {
+            nameToUse = configName;
         }
 
-        // Первый запрос для этой страны — создаём клиента, ждём одобрения админом
+        // Всегда сверяемся с панелью, а не с БД: createClient идемпотентен (create-or-attach) —
+        // создаст клиента или привяжет недостающие inbound'ы под тем же UUID/subId.
+        // Раньше решение «что докинуть» принималось по ссылкам в БД, и при выборе «Оба»
+        // после одного типа бот возвращал старый конфиг, ничего не добавляя на панель.
+        String[] panelResult = panelFor(effectiveCountry).createClient(nameToUse, userId, type);
+
+        String[] existing = dbService.getConfigsByIdAndCountry(userId, effectiveCountry);
+        String sub = panelResult[1] != null ? panelResult[1] : (existing.length > 1 ? existing[1] : null);
+        dbService.setConfig(userId, nameToUse, panelResult[0], sub, panelResult[2], panelResult[3], effectiveCountry);
+
+        // Первый запрос для этой страны — ждём одобрения админом
         if (!hasConfigForCountry) {
-            String[] panelResult = panelFor(effectiveCountry).createClient(configName, userId, type);
-
-            dbService.setConfig(
-                    userId,
-                    configName,
-                    panelResult[0],
-                    panelResult[1],
-                    panelResult[2],
-                    effectiveCountry
-            );
             dbService.setUserHasConfig(userId, true);
-
             return new String[]{};
         }
 
-        return new String[]{};
+        return dbService.userHasAcceptedConfig(userId)
+                ? dbService.getConfigsByIdAndCountry(userId, effectiveCountry)
+                : new String[]{};
     }
 
     @Override
-    public String[] getConfigs(Long userId) throws IOException, InterruptedException {
+    public Map<String, String[]> getConfigs(Long userId) throws IOException, InterruptedException {
+        Map<String, String[]> result = new LinkedHashMap<>();
         if (!dbService.userHasAcceptedConfig(userId)) {
-            return new String[]{};
+            return result;
         }
 
-        String country = getExistingCountry(userId);
-        if (country == null) {
-            return new String[]{};
+        // Все страны пользователя, Латвия первой (раньше показывалась только первая по алфавиту — Германия)
+        for (String country : List.of("latv", "germ")) {
+            String[] configs = dbService.getConfigsByIdAndCountry(userId, country);
+            if (configs.length > 0) {
+                result.put(country, configs);
+            }
         }
-
-        return dbService.getConfigsByIdAndCountry(userId, country);
+        return result;
     }
 
     @Override

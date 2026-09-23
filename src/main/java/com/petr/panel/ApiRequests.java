@@ -34,6 +34,9 @@ public interface ApiRequests {
     /** GET /panel/api/clients/list — все клиенты (ClientRecord: email/subId/tgId). */
     HttpResponse<String> listClients() throws IOException, InterruptedException;
 
+    /** GET /panel/api/inbounds/get/{id} — inbound (obj), либо null если не найден. */
+    JsonNode getInbound(int inboundId) throws IOException, InterruptedException;
+
     /** GET /panel/api/inbounds/list — список inbound'ов (нужен скрипту объединения). */
     HttpResponse<String> getInboundsList() throws IOException, InterruptedException;
 }

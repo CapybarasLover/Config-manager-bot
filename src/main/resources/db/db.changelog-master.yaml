@@ -22,3 +22,7 @@ databaseChangeLog:
   - include:
       file: changeset/restructure-config-multi-country.sql
       relativeToChangelogFile: true
+
+  - include:
+      file: changeset/add-reality-link.sql
+      relativeToChangelogFile: true
