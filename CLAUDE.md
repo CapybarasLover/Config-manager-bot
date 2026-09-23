@@ -49,7 +49,7 @@ Copy `.env.example` → `.env` and fill all values before running.
 | `LATV_REALITY_INBOUND_PROD` | Latvian Reality inbound ID in prod (optional, default `8`; `0` disables) |
 | `LATV_REALITY_INBOUND_DEV` | Latvian Reality inbound ID in dev (optional; if absent, disabled) |
 | `LATV_SUB_BASE_URL` | Latvian subscription base URL (optional, default `https://petromerzlikino.site:2096/sub/`) |
-| `LATV_WS_INBOUND_PROD` | Latvian WS inbound ID in prod (optional, default `2`) |
+| `LATV_WS_INBOUND_PROD` | Latvian WS inbound ID in prod (optional, default `1` — `riga-ws`) |
 | `LATV_WS_INBOUND_DEV` | Latvian WS inbound ID in dev (optional, default `3`) |
 | `DB_LINK_PROD` / `DB_LINK_DEV` | JDBC URLs for prod/dev PostgreSQL |
 | `DB_USER` / `DB_PASSWORD` / `DB_NAME` | PostgreSQL credentials |
@@ -91,7 +91,7 @@ fork anymore:
 - **`PanelConfig`** — holds one panel's settings (label, baseUrl, credentials,
   `wsInbound`, `xhttpInbound` (nullable → XHTTP disabled), `realityInbound` (nullable; attached to **every** client regardless of ConfigType, so it lands in the subscription), `subBaseUrl`). Factories
   `PanelConfig.latv()` / `PanelConfig.germ()` build these from env.
-  - Latv: WS inbound from `LATV_WS_INBOUND_PROD/DEV` (default prod=`2`/dev=`3`); **no XHTTP** (removed from the Riga server; hard-coded `null`, the user skips the config-type choice); Reality inbound `LATV_REALITY_INBOUND_PROD` (default `8`); sub base from `LATV_SUB_BASE_URL` (default `https://petromerzlikino.site:2096/sub/`).
+  - Latv: WS inbound from `LATV_WS_INBOUND_PROD/DEV` (default prod=`1`/dev=`3`); **no XHTTP** (removed from the Riga server; hard-coded `null`, the user skips the config-type choice); Reality inbound `LATV_REALITY_INBOUND_PROD` (default `8`); sub base from `LATV_SUB_BASE_URL` (default `https://petromerzlikino.site:2096/sub/`).
   - Germ: WS inbound `GERM_WS_INBOUND` (default `3`), XHTTP inbound `GERM_XHTTP_INBOUND` (default `2`), Reality inbound `GERM_REALITY_INBOUND` (default `5`), sub base `GERM_SUB_BASE_URL`.
 - **`ApiRequestsImpl`** (one class for all panels) — HTTP client (forced HTTP/1.1). Authenticates with the panel **API token** via `Authorization: Bearer <token>` on every request — no login/session/cookies/CSRF (the panel skips CSRF for Bearer-authed, non-browser callers). `executeWithRetry` retries up to 2× on `RequestException`. Client endpoints (`add`/`attach`/`del`/`get`/`links`/`list`) send/receive **JSON** (`application/json`).
 - **`PanelServiceImpl`** (one class for all panels) — `createClient(email, tgId, ConfigType)` is **create-or-attach**: no client → create in target inbounds; client exists → attach the missing inbounds, reusing its UUID/subId. Returns `String[]{wsLink, subLink, xhttpLink, realityLink}` (nulls allowed); links are fetched from the panel (`links/{email}`) and classified by matching the link port against each inbound's port (`GET inbounds/get/{id}`), falling back to `type=xhttp`/`splithttp` → xHTTP, `type=ws` → WS, else → Reality. `deleteClient(email)` removes the client from all inbounds in one call.

@@ -44,3 +44,6 @@ build/
 run_wsl_claude_in_curr_dir.bat
 
 devops-artifacts.zip
+# Локальные креды для тестов
+creads*.txt
+creds*.txt
