@@ -120,12 +120,10 @@ public class PanelServiceImpl implements PanelService {
         Map<Integer, Integer> ports = inboundPorts();
         for (JsonNode rec : arr) {
             long tgId = rec.path("tgId").asLong(0);
-            if (tgId == 0) {
-                continue;
-            }
             String email = rec.path("email").asText("");
             String subId = rec.path("subId").asText("");
-            if (email.isEmpty()) {
+            // Без tgId берём только бот-конфиги (`_config`) — их DbService сопоставит по имени
+            if (email.isEmpty() || (tgId == 0 && !email.endsWith("_config"))) {
                 continue;
             }
 

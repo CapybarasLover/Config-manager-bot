@@ -142,10 +142,30 @@ public class DbService {
     public String syncFromPanel(List<PanelClient> clients, String country) {
         int usersCreated = 0;
         int configsSaved = 0;
+        int linksUpdated = 0;
         String effectiveCountry = (country == null || country.isBlank()) ? "latv" : country;
 
         for (PanelClient client : clients) {
             Long tgId = client.getTgId();
+
+            // На панели без tgId (старые/ручные клиенты) — обновляем только ссылки
+            // уже известного конфига, найденного по имени; пользователей не создаём
+            if (tgId == 0) {
+                Config byName = configDao.getConfigByNameAndCountry(client.getConfigName(), effectiveCountry);
+                if (byName != null) {
+                    configDao.saveConfig(
+                            byName.getTgUser().getId(),
+                            byName.getConfigName(),
+                            client.getVlessLink(),
+                            client.getSubLink() != null ? client.getSubLink() : byName.getSubLink(),
+                            client.getXhttpLink(),
+                            client.getRealityLink(),
+                            effectiveCountry
+                    );
+                    linksUpdated++;
+                }
+                continue;
+            }
 
             User user = userDao.getUserById(tgId);
             if (user == null) {
@@ -182,9 +202,11 @@ public class DbService {
         }
 
         return String.format(
-                "Синхронизация завершена: %d новых пользователей, %d новых конфигов сохранено.",
+                "Синхронизация завершена: %d новых пользователей, %d новых конфигов сохранено, "
+                        + "%d конфигов без tgId обновлено по имени.",
                 usersCreated,
-                configsSaved
+                configsSaved,
+                linksUpdated
         );
     }
 }

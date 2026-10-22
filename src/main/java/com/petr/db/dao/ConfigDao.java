@@ -95,6 +95,18 @@ public class ConfigDao {
         }
     }
 
+    public Config getConfigByNameAndCountry(String configName, String country) {
+        try (Session session = this.sessionFactory.openSession()) {
+            return session.createQuery("""
+                    FROM Config c JOIN FETCH c.tgUser
+                    WHERE c.configName = :name AND c.country = :country
+                    """, Config.class)
+                    .setParameter("name", configName)
+                    .setParameter("country", country)
+                    .uniqueResult();
+        }
+    }
+
     public void updateXhttpLink(Long tgId, String country, String xhttpLink) {
         String resolvedCountry = (country != null && !country.isBlank()) ? country : "latv";
 
