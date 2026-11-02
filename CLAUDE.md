@@ -23,6 +23,14 @@ java -Dapp.env=prod -cp target/Config_bot-2.0-SNAPSHOT.jar com.petr.tools.MergeI
 
 `app.env` (`prod` | `dev`) controls DB connection string and 3x-ui inbound IDs.
 
+## Scenario tests
+
+```bash
+bash scripts/run-scenarios.sh
+```
+
+Runs every user and admin flow through the real `Bot` (`src/test/java/com/petr/bot/ScenarioRunner.java`). Telegram and both panels are local fakes (`FakeTelegram`, `FakePanel`, shaped after real v3.8.5 responses), the DB is a throwaway Postgres; `.env`, real panels and Telegram are never touched. Needs a JDK (`JAVA_BIN`), PostgreSQL binaries (`PG_BIN`) and an already built `target/Config_bot-2.0-SNAPSHOT.jar`: Lombok classes are taken from that jar, so rebuild it after changing them. The bot's own output goes to `target/scenarios/bot.log`. Add a scenario for every bug fixed.
+
 ## Docker
 
 ```bash
@@ -76,6 +84,12 @@ Bot.java  (telebof: @MessageHandler + @CallbackHandler)
 - `awaitingMessageId: Map<Long, Integer>` — message to edit after user types config name
 - `deleteMessageId: Map<Long, Integer>` — admin panel message to edit after typing config name to delete
 
+`adminNotifications` tracks the notification messages of each open request (`"userId:country"` → adminId → messageId), so a decision by one admin updates all of them. It lives in memory: after a restart another admin's message updates only when they press its button (the press is still safe, the decision comes from the DB).
+
+Never rely on in-memory state for a choice the user made earlier: buttons outlive it (restart, another finished request, double tap). The country travels inside callback data (`config_type:both:germ`, `approve:<id>:<country>`). Edit messages through `show(...)` (a repeated identical edit is not an error; falls back to a new message) and answer callbacks through `answer(...)` (an expired query does not abort the handler).
+
+**`TelebofThreadSafety`** — telebof 1.2.3 builds all Bot API requests with one shared `Request.Builder`, so concurrent calls silently overwrite each other (lost and duplicated messages). `Bot.buildClient` replaces it with a per-thread builder and sets 8 handler threads (the default of 2 lets two hung panel calls stop the bot). Always create the client through `buildClient`.
+
 **`isAdmin` filter** — `CustomFilter` that checks `ADMIN_CHATS` env var for both `Message` updates and `CallbackQuery` updates (handles both types). Logs every check.
 
 **Client-centric model (3x-ui ≥ v3.2.5, verified against v3.8.5):** clients are standalone entities under
@@ -93,14 +107,14 @@ fork anymore:
   `PanelConfig.latv()` / `PanelConfig.germ()` build these from env.
   - Latv: WS inbound from `LATV_WS_INBOUND_PROD/DEV` (default prod=`1`/dev=`3`); **no XHTTP** (removed from the Riga server; hard-coded `null`, the user skips the config-type choice); Reality inbound `LATV_REALITY_INBOUND_PROD` (default `8`); sub base from `LATV_SUB_BASE_URL` (default `https://petromerzlikino.site:2096/sub/`).
   - Germ: WS inbound `GERM_WS_INBOUND` (default `3`), XHTTP inbound `GERM_XHTTP_INBOUND` (default `2`), Reality inbound `GERM_REALITY_INBOUND` (default `5`), sub base `GERM_SUB_BASE_URL`.
-- **`ApiRequestsImpl`** (one class for all panels) — HTTP client (forced HTTP/1.1). Authenticates with the panel **API token** via `Authorization: Bearer <token>` on every request — no login/session/cookies/CSRF (the panel skips CSRF for Bearer-authed, non-browser callers). `executeWithRetry` retries up to 2× on `RequestException`. Client endpoints (`add`/`attach`/`del`/`get`/`links`/`list`) send/receive **JSON** (`application/json`).
-- **`PanelServiceImpl`** (one class for all panels) — `createClient(email, tgId, ConfigType)` is **create-or-attach**: no client → create in target inbounds; client exists → attach the missing inbounds, reusing its UUID/subId. Returns `String[]{wsLink, subLink, xhttpLink, realityLink}` (nulls allowed); links are fetched from the panel (`links/{email}`) and classified by matching the link port against each inbound's port (`GET inbounds/get/{id}`), falling back to `type=xhttp`/`splithttp` → xHTTP, `type=ws` → WS, else → Reality. `deleteClient(email)` removes the client from all inbounds in one call.
+- **`ApiRequestsImpl`** (one class for all panels) — HTTP client (forced HTTP/1.1). Authenticates with the panel **API token** via `Authorization: Bearer <token>` on every request — no login/session/cookies/CSRF (the panel skips CSRF for Bearer-authed, non-browser callers). `executeWithRetry` retries up to 2× on `RequestException`. Requests time out (10 s connect, 20 s request). Client endpoints (`add`/`attach`/`del`/`get`/`links`/`list`) send/receive **JSON** (`application/json`).
+- **`PanelServiceImpl`** (one class for all panels) — `createClient(email, tgId, ConfigType)` is **create-or-attach**: no client → create in target inbounds; client exists → attach the missing inbounds, reusing its UUID/subId. Returns `String[]{wsLink, subLink, xhttpLink, realityLink}` (nulls allowed); links are fetched from the panel (`links/{email}`) and classified by matching the link port against each inbound's port (`GET inbounds/get/{id}`), falling back to `type=xhttp`/`splithttp` → xHTTP, `type=ws` → WS, else → Reality. `readClient(email)` returns the current links without changing the panel. `deleteClient(email)` removes the client from all inbounds in one call, together with its old `{base}_xhttp` twin if one exists (otherwise a deleted user keeps a working xHTTP link). Old `_xhttp` clients are never synced into the DB.
 
-**`ConfigManagerImpl`** — `getConfigs(...)` always calls the panel's create-or-attach (never decides from DB links what is missing), then overwrites the DB links with what the panel returns. Builds `new PanelServiceImpl(PanelConfig.latv())` and `new PanelServiceImpl(PanelConfig.germ())`. Dispatches to the correct panel based on `country` param ("latv" / "germ"). Country stored in DB `config.country` column.
+**`ConfigManagerImpl`** — `getConfigs(...)` always calls the panel's create-or-attach (never decides from DB links what is missing), then overwrites the DB links with what the panel returns. Builds `new PanelServiceImpl(PanelConfig.latv())` and `new PanelServiceImpl(PanelConfig.germ())`. Dispatches to the correct panel based on `country` param ("latv" / "germ"). Country stored in DB `config.country` column. Requests of one user are serialized (double tap). A first request for a name owned by another user (DB row, or a non-zero foreign `tgId` on the panel) throws `ConfigNameTakenException` and the bot asks for another name: create-or-attach would otherwise hand over someone else's client. `getConfigs(userId)` returns approved configs only and refreshes their links from the panel, falling back to the DB if it is down.
 
 **`MergeInbounds`** (`com.petr.tools.MergeInbounds`) — one-off migration script. Reads `clients/list` (which includes each client's `inboundIds`); for every bot client (`_config` suffix or non-zero `tgId`) attaches the XHTTP inbound if it is in the WS inbound, and the Reality inbound always. Leaves old separate `_xhttp` clients untouched. Idempotent.
 
-**`DbService`** — Facade over `UserDao` + `ConfigDao`. User status: `"w"` = waiting/no config, `"a"` = approved.
+**`DbService`** — Facade over `UserDao` + `ConfigDao`. Approval is per country, not per config type: a user has one `config` row per country, and its `status` is `"w"` waiting, `"a"` approved, `"d"` rejected. Any type requested in an approved country (including protocols added later) is attached immediately, with no admin request. `tg_user.wait_accept` only records that the user has an approved config; do not use it to decide access.
 
 **`HibernateSessionFactoryUtil`** — Singleton `SessionFactory`, reads `app.env` to pick `hibernate-prod.properties` or `hibernate-dev.properties`. JDBC credentials injected from env vars.
 
@@ -114,7 +128,7 @@ fork anymore:
 | `id` | BIGINT PK | Telegram chat ID |
 | `tg_name` | TEXT | @username (nullable) |
 | `has_config` | BOOLEAN | true once config created on panel |
-| `wait_accept` | TEXT | `"w"` = pending, `"a"` = approved |
+| `wait_accept` | TEXT | `"a"` once any config is approved, otherwise `"w"`; access is decided by `config.status` |
 
 **`config`**
 | Column | Type | Notes |
@@ -126,6 +140,7 @@ fork anymore:
 | `xhttp_link` | TEXT | XHTTP VLESS link (nullable — old configs don't have it) |
 | `reality_link` | TEXT | Reality link (nullable) |
 | `country` | VARCHAR(10) | `"latv"` or `"germ"` — determines which panel to use for delete |
+| `status` | VARCHAR(5) | `"w"` waiting, `"a"` approved, `"d"` rejected |
 
 Liquibase changesets: `src/main/resources/db/changeset/` (SQL format, master: `db.changelog-master.yaml`).
 
@@ -162,7 +177,7 @@ User configs are named `{base}_config` (e.g. `petr_config`). The `_config` suffi
    ```
 2. Every button **edits the same message** — result appears above the buttons
 3. **[Удалить конфиг]** → edits message to prompt for config name + **[Отмена]**; state = `admin_delete_state`; stores `message_id` in `deleteMessageId`. Admin types name → bot deletes from panel + DB, resets user status, edits message with result
-4. Config request notification to admins includes inline **[Одобрить] [Отклонить]** buttons — pressing edits the notification message
+4. Config request notification to admins includes inline **[Одобрить] [Отклонить]** buttons — a decision removes the buttons and shows the outcome and who decided to **all** admins; a late press only reports that the request is already closed
 
 ### Admin commands (text fallback)
 `/syncPanel`, `/users`, `/exAdmin` — still work as text commands for convenience.
@@ -176,21 +191,22 @@ User configs are named `{base}_config` (e.g. `petr_config`). The `_config` suffi
 
 ## Config approval flow
 
-1. User clicks **[Получить конфиг]** → bot creates one client attached to the requested inbounds (WS and/or XHTTP) under a single UUID/subId, saves to DB (`hasConfig=true`, status=`"w"`), returns `String[]{}` (empty = pending)
-2. Bot edits user message: "ожидает одобрения" + **[Проверить статус]**; sends notification to each admin in `ADMIN_CHATS` with **[Одобрить] [Отклонить]** buttons
-3. Admin clicks **[Одобрить]** → `setUserStatusAccepted` sets status=`"a"`, bot sends config links to user, edits admin's notification message
-4. User clicks **[Проверить статус]** → `getConfigs(userId)` checks `userHasAcceptedConfig`; if true, shows links
+1. User clicks **[Получить конфиг]** → bot creates one client attached to the requested inbounds (WS and/or XHTTP) under a single UUID/subId, saves to DB (`hasConfig=true`, `config.status="w"`), returns `String[]{}` (empty = pending)
+2. Bot edits user message: "ожидает одобрения" + **[Проверить статус]**; sends notification to each admin in `ADMIN_CHATS` with **[Одобрить] [Отклонить]** buttons. A repeated request does not notify again while the request is open
+3. Admin clicks **[Одобрить]** → `approveConfig` atomically moves the config from `"w"` to `"a"` (of two simultaneous decisions exactly one applies), bot sends the links to the user and closes the request for all admins
+4. Admin clicks **[Отклонить]** → status `"d"`, the user is told and may request again (status returns to `"w"`). The panel client stays: the user never received its links, and it may have existed before the request
+5. User clicks **[Проверить статус]** → shows approved configs and says which countries are still waiting or rejected. Approval of one country does not open another; new config types within an approved country need no approval
 
 ## Config delete flow
 
 1. Admin clicks **[Удалить конфиг]** → prompts for base name (e.g. `petr`)
 2. Bot constructs full name (`petr_config`), calls `ConfigManagerImpl.deleteConfig(configName)`
-3. `deleteConfig`: finds config in DB by name, deletes DB record, resets user `hasConfig=false`/`waitAccept="w"`, calls panel `deleteClient(email)`
-4. `deleteClient(email)` → `POST /panel/api/clients/del/{email}` removes the client from **all** inbounds in one call (no per-inbound handling)
+3. `deleteConfig`: finds the configs in DB by name (one per country), deletes the records, resets user `hasConfig=false`/`waitAccept="w"` if nothing is left, calls panel `deleteClient(email)` for each country
+4. `deleteClient(email)` → `POST /panel/api/clients/del/{email}` removes the client from **all** inbounds in one call (no per-inbound handling), then the same for the old `{base}_xhttp` twin
 
 ## Panel sync (`/syncPanel`)
 
-Reads all clients via `GET /panel/api/clients/list`, iterates records with non-zero `tgId`, and for each fetches `GET /panel/api/clients/links/{email}` to rebuild the WS/xHTTP links (sub link from `subId`). Upserts users and configs in DB; sets status=`"a"` and `hasConfig=true` for synced users.
+Reads all clients via `GET /panel/api/clients/list`, iterates records with non-zero `tgId`, and for each fetches `GET /panel/api/clients/links/{email}` to rebuild the WS/xHTTP links (sub link from `subId`). Upserts users and configs in DB. Configs new to the DB become approved; existing ones keep their status, because a pending request already has a client on the panel and sync must not approve it. Clients with `tgId=0` update links of a known `_config` by name; `_xhttp` clients are skipped.
 
 ## 3x-ui API notes (client-centric, ≥ v3.2.5)
 

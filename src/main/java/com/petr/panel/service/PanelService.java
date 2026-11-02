@@ -25,7 +25,13 @@ public interface PanelService {
     String[] createClient(String email, long tgId, ConfigType type)
             throws IOException, InterruptedException;
 
-    /** Удаляет клиента из всех inbound'ов сразу. */
+    /** Текущие ссылки клиента: [wsLink, subLink, xhttpLink, realityLink]; null, если клиента на панели нет. Панель не меняет. */
+    String[] readClient(String email) throws IOException, InterruptedException;
+
+    /** Клиент с таким email есть на панели и записан на другой Telegram-аккаунт. */
+    boolean isOwnedByOther(String email, long tgId) throws IOException, InterruptedException;
+
+    /** Удаляет клиента из всех inbound'ов сразу вместе с его старой парой {@code _xhttp}, если она есть. */
     String deleteClient(String email) throws IOException, InterruptedException;
 
     /** Клиенты панели для синхронизации с БД. */

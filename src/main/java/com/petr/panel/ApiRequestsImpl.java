@@ -15,6 +15,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -28,6 +29,8 @@ import java.util.UUID;
 public class ApiRequestsImpl implements ApiRequests {
 
     private static final int MAX_RETRIES = 2;
+    private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
+    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(20);
     private static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
     @FunctionalInterface
@@ -38,6 +41,7 @@ public class ApiRequestsImpl implements ApiRequests {
     private final ObjectMapper mapper = new ObjectMapper();
     private final HttpClient client = HttpClient.newBuilder()
             .version(HttpClient.Version.HTTP_1_1)   // HTTP/2 вызывает проблемы с некоторыми 3x-ui
+            .connectTimeout(CONNECT_TIMEOUT)
             .build();
 
     private final String tag;
@@ -147,6 +151,12 @@ public class ApiRequestsImpl implements ApiRequests {
             if (response.statusCode() != 200) {
                 throw new RequestException("HTTP " + response.statusCode(), response.statusCode());
             }
+
+            JsonNode json = mapper.readTree(response.body());
+            String msg = json.path("msg").asText("");
+            if (!json.path("success").asBoolean(false) && !msg.contains("not found")) {
+                throw new RequestException("deleteClient success=false: " + msg, 200);
+            }
             return "Клиент " + email + " удален!";
         });
     }
@@ -249,9 +259,10 @@ public class ApiRequestsImpl implements ApiRequests {
 
     // ── Хелперы ───────────────────────────────────────────────────────────────
 
-    /** Builder с общими заголовками (Bearer-токен + User-Agent). */
+    /** Builder с общими заголовками (Bearer-токен + User-Agent) и таймаутом: без него зависшая панель держит поток бота вечно. */
     private HttpRequest.Builder authed(URI url) {
         return HttpRequest.newBuilder(url)
+                .timeout(REQUEST_TIMEOUT)
                 .header("Authorization", "Bearer " + apiToken)
                 .header("Accept", "application/json")
                 .header("User-Agent", USER_AGENT);

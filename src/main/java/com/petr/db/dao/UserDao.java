@@ -43,6 +43,19 @@ public class UserDao {
         }
     }
 
+    public void setUserName(Long tgId, String tgName) {
+        try (Session session = this.sessionFactory.openSession()) {
+            Transaction tx = session.beginTransaction();
+            User user = session.find(User.class, tgId);
+            if (user == null) {
+                tx.rollback();
+                return;
+            }
+            user.setTgName(tgName);
+            tx.commit();
+        }
+    }
+
     public boolean getUserHasConfig(Long tgId) {
         try (Session session = this.sessionFactory.openSession()) {
             User user = session.find(User.class, tgId);

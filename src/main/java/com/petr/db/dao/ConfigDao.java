@@ -84,14 +84,63 @@ public class ConfigDao {
         }
     }
 
-    public Config getConfigByName(String configName) {
+    /** У одного имени может быть по конфигу на страну. */
+    public List<Config> getConfigsByName(String configName) {
         try (Session session = this.sessionFactory.openSession()) {
             return session.createQuery("""
-                    FROM Config
-                    WHERE configName = :name
+                    FROM Config c JOIN FETCH c.tgUser
+                    WHERE c.configName = :name
                     """, Config.class)
                     .setParameter("name", configName)
-                    .uniqueResult();
+                    .getResultList();
+        }
+    }
+
+    public boolean isConfigNameUsedByOtherUser(String configName, Long tgId) {
+        try (Session session = this.sessionFactory.openSession()) {
+            return session.createQuery("""
+                    SELECT count(*) FROM Config
+                    WHERE configName = :name AND tgUser.id <> :tgId
+                    """, Long.class)
+                    .setParameter("name", configName)
+                    .setParameter("tgId", tgId)
+                    .uniqueResult() > 0;
+        }
+    }
+
+    /**
+     * Меняет статус, только если он сейчас равен expected. Условие проверяет сама БД,
+     * поэтому из двух одновременных решений применяется ровно одно.
+     */
+    public boolean compareAndSetStatus(Long tgId, String country, String expected, String status) {
+        try (Session session = this.sessionFactory.openSession()) {
+            Transaction tx = session.beginTransaction();
+            int updated = session.createMutationQuery("""
+                    UPDATE Config SET status = :status
+                    WHERE tgUser.id = :tgId AND country = :country AND status = :expected
+                    """)
+                    .setParameter("status", status)
+                    .setParameter("tgId", tgId)
+                    .setParameter("country", country)
+                    .setParameter("expected", expected)
+                    .executeUpdate();
+            tx.commit();
+            return updated > 0;
+        }
+    }
+
+    public void setStatus(Long tgId, String country, String status) {
+        try (Session session = this.sessionFactory.openSession()) {
+            Transaction tx = session.beginTransaction();
+            session.createMutationQuery("""
+                    UPDATE Config SET status = :status
+                    WHERE tgUser.id = :tgId AND country = :country
+                    """)
+                    .setParameter("status", status)
+                    .setParameter("tgId", tgId)
+                    .setParameter("country", country)
+                    .executeUpdate();
+            tx.commit();
         }
     }
 

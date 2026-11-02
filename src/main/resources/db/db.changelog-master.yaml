@@ -26,3 +26,7 @@ databaseChangeLog:
   - include:
       file: changeset/add-reality-link.sql
       relativeToChangelogFile: true
+
+  - include:
+      file: changeset/normalize-config-names-and-status.sql
+      relativeToChangelogFile: true
