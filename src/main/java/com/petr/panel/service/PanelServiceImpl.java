@@ -30,6 +30,10 @@ public class PanelServiceImpl implements PanelService {
     /** host:port после '@' (IPv6 в квадратных скобках тоже поддерживается). */
     private static final Pattern LINK_PORT = Pattern.compile("@(?:\\[[^\\]]+\\]|[^:/?#@\\[\\]]+):(\\d+)");
 
+    private static final String CONFIG_SUFFIX = "_config";
+    /** Второй клиент старой модели (один пользователь — два клиента). Основным остаётся {@code _config}. */
+    private static final String LEGACY_XHTTP_SUFFIX = "_xhttp";
+
     private final String label;
     private final ApiRequests api;
     private final ObjectMapper mapper = new ObjectMapper();
@@ -58,7 +62,28 @@ public class PanelServiceImpl implements PanelService {
 
     @Override
     public String deleteClient(String email) throws IOException, InterruptedException {
-        return api.deleteClient(email);
+        String result = api.deleteClient(email);
+        if (email.endsWith(CONFIG_SUFFIX)) {
+            // Иначе у удалённого пользователя остаётся рабочий старый xHTTP
+            api.deleteClient(email.substring(0, email.length() - CONFIG_SUFFIX.length()) + LEGACY_XHTTP_SUFFIX);
+        }
+        return result;
+    }
+
+    @Override
+    public String[] readClient(String email) throws IOException, InterruptedException {
+        JsonNode existing = api.getClient(email);
+        return isMissing(existing) ? null : currentLinks(email, existing.path("client").path("subId").asText(""));
+    }
+
+    @Override
+    public boolean isOwnedByOther(String email, long tgId) throws IOException, InterruptedException {
+        JsonNode existing = api.getClient(email);
+        if (isMissing(existing)) {
+            return false;
+        }
+        long owner = existing.path("client").path("tgId").asLong(0);
+        return owner != 0 && owner != tgId;
     }
 
     @Override
@@ -74,7 +99,7 @@ public class PanelServiceImpl implements PanelService {
         JsonNode existing = api.getClient(email);
         String subId;
 
-        if (existing == null || existing.isMissingNode() || existing.isNull()) {
+        if (isMissing(existing)) {
             UUID uuid = UUID.randomUUID();
             subId = UUID.randomUUID().toString();
             api.addClient(targetIds, uuid, subId, email, tgId);
@@ -97,9 +122,7 @@ public class PanelServiceImpl implements PanelService {
                     + ", привязано доп. inbounds=" + missing);
         }
 
-        String[] links = classifyLinks(api.getClientLinks(email), inboundPorts());
-        String subLink = (subId == null || subId.isEmpty()) ? null : createSubLink(subId);
-        return new String[]{links[0], subLink, links[1], links[2]};
+        return currentLinks(email, subId);
     }
 
     @Override
@@ -122,8 +145,10 @@ public class PanelServiceImpl implements PanelService {
             long tgId = rec.path("tgId").asLong(0);
             String email = rec.path("email").asText("");
             String subId = rec.path("subId").asText("");
-            // Без tgId берём только бот-конфиги (`_config`) — их DbService сопоставит по имени
-            if (email.isEmpty() || (tgId == 0 && !email.endsWith("_config"))) {
+            // Без tgId берём только бот-конфиги (`_config`) — их DbService сопоставит по имени.
+            // Старые `_xhttp` не берём: иначе они перетрут основной конфиг пользователя в БД
+            if (email.isEmpty() || email.endsWith(LEGACY_XHTTP_SUFFIX)
+                    || (tgId == 0 && !email.endsWith(CONFIG_SUFFIX))) {
                 continue;
             }
 
@@ -150,7 +175,8 @@ public class PanelServiceImpl implements PanelService {
         for (JsonNode rec : root.path("obj")) {
             String email = rec.path("email").asText("");
             // Бот-конфиги опознаём по суффиксу `_config` или по tgId
-            boolean botClient = email.endsWith("_config") || rec.path("tgId").asLong(0) != 0;
+            boolean botClient = !email.endsWith(LEGACY_XHTTP_SUFFIX)
+                    && (email.endsWith(CONFIG_SUFFIX) || rec.path("tgId").asLong(0) != 0);
             if (email.isEmpty() || !botClient) {
                 skipped++;
                 continue;
@@ -189,6 +215,16 @@ public class PanelServiceImpl implements PanelService {
     }
 
     // ── Хелперы ───────────────────────────────────────────────────────────────
+
+    private static boolean isMissing(JsonNode client) {
+        return client == null || client.isMissingNode() || client.isNull();
+    }
+
+    private String[] currentLinks(String email, String subId) throws IOException, InterruptedException {
+        String[] links = classifyLinks(api.getClientLinks(email), inboundPorts());
+        String subLink = (subId == null || subId.isEmpty()) ? null : createSubLink(subId);
+        return new String[]{links[0], subLink, links[1], links[2]};
+    }
 
     private List<Integer> targetInboundIds(ConfigType type) {
         List<Integer> ids = new ArrayList<>();
@@ -230,7 +266,8 @@ public class PanelServiceImpl implements PanelService {
      * Раскладывает ссылки панели на [wsLink, xhttpLink, realityLink].
      * Сначала сопоставляем по порту inbound'а (однозначно, если порты различны),
      * иначе — по типу транспорта: {@code type=xhttp}/{@code type=splithttp} → XHTTP,
-     * {@code type=ws} → WS, прочее → Reality (если он настроен), иначе WS.
+     * {@code type=ws} → WS, прочее → Reality (если он настроен), иначе WS. Точное совпадение
+     * по порту важнее типа: ссылка лишнего inbound'а не должна занять чужое место.
      */
     private String[] classifyLinks(List<String> rawLinks, Map<Integer, Integer> ports) {
         Integer wsPort = ports.get(wsInbound);
@@ -238,13 +275,19 @@ public class PanelServiceImpl implements PanelService {
         Integer realityPort = realityInbound == null ? null : ports.get(realityInbound);
 
         String[] result = new String[3]; // 0=ws, 1=xhttp, 2=reality
+        List<String> withoutPortMatch = new ArrayList<>();
         for (String link : rawLinks) {
             int slot = slotByPort(linkPort(link), wsPort, xhttpPort, realityPort);
             if (slot < 0) {
-                slot = slotByType(link);
-            }
-            if (result[slot] == null) {
+                withoutPortMatch.add(link);
+            } else if (result[slot] == null) {
                 result[slot] = link; // первая ссылка inbound'а — основная
+            }
+        }
+        for (String link : withoutPortMatch) {
+            int slot = slotByType(link);
+            if (result[slot] == null) {
+                result[slot] = link;
             }
         }
         return result;

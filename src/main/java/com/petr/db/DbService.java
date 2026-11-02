@@ -7,9 +7,13 @@ import com.petr.db.entity.User;
 import com.petr.panel.dto.PanelClient;
 
 import java.util.List;
-import java.util.Objects;
+import java.util.stream.Collectors;
 
 public class DbService {
+    public static final String STATUS_WAITING = "w";
+    public static final String STATUS_APPROVED = "a";
+    public static final String STATUS_REJECTED = "d";
+
     private final ConfigDao configDao;
     private final UserDao userDao;
 
@@ -37,9 +41,12 @@ public class DbService {
         return "Конфиг сохранен успешно!";
     }
 
-    public String getCountryByConfigName(String configName) {
-        Config config = configDao.getConfigByName(configName);
-        return config != null ? config.getCountry() : null;
+    public Config getConfig(Long tgId, String country) {
+        return configDao.getConfigByUserIdAndCountry(tgId, country);
+    }
+
+    public boolean isConfigNameTakenByOther(String configName, Long tgId) {
+        return configDao.isConfigNameUsedByOtherUser(configName, tgId);
     }
 
     public String getConfigName(Long tgId, String country) {
@@ -47,16 +54,15 @@ public class DbService {
         return config != null ? config.getConfigName() : null;
     }
 
-    public boolean userHasConfig(Long tgId, String country) {
-        return configDao.getConfigByUserIdAndCountry(tgId, country) != null;
-    }
-
     public boolean userHasAnyConfig(Long tgId) {
         return !configDao.getConfigsByUserId(tgId).isEmpty();
     }
 
-    public boolean userHasAcceptedConfig(Long tgId) {
-        return userHasAnyConfig(tgId) && Objects.equals(userDao.getUserStatus(tgId), "a");
+    public List<String> getCountriesWithStatus(Long tgId, String status) {
+        return configDao.getConfigsByUserId(tgId).stream()
+                .filter(c -> status.equals(c.getStatus()))
+                .map(Config::getCountry)
+                .toList();
     }
 
     /**
@@ -84,29 +90,45 @@ public class DbService {
         return "Пользователь обновлен!";
     }
 
-    public void setUserStatusAccepted(Long tgId) {
-        userDao.setUserStatus("a", tgId);
+    /** @return false, если заявку уже закрыли: одобрили, отклонили или удалили */
+    public boolean approveConfig(Long tgId, String country) {
+        if (!configDao.compareAndSetStatus(tgId, country, STATUS_WAITING, STATUS_APPROVED)) {
+            return false;
+        }
+        userDao.setUserStatus(STATUS_APPROVED, tgId);
+        return true;
     }
 
-    public String deleteConfigByName(String configName) {
-        Config config = configDao.getConfigByName(configName);
-        if (config == null) {
-            return null;
+    /** @return false, если заявку уже закрыли: одобрили, отклонили или удалили */
+    public boolean rejectConfig(Long tgId, String country) {
+        return configDao.compareAndSetStatus(tgId, country, STATUS_WAITING, STATUS_REJECTED);
+    }
+
+    public void reopenConfig(Long tgId, String country) {
+        configDao.setStatus(tgId, country, STATUS_WAITING);
+    }
+
+    /** Удаляет конфиги с этим именем (по одному на страну) и возвращает удалённые. */
+    public List<Config> deleteConfigsByName(String configName) {
+        List<Config> configs = configDao.getConfigsByName(configName);
+
+        for (Config config : configs) {
+            Long tgId = config.getTgUser().getId();
+            configDao.deleteConfigByUserIdAndCountry(tgId, config.getCountry());
+
+            boolean hasAnyConfigLeft = userHasAnyConfig(tgId);
+            userDao.setUserHasConfig(tgId, hasAnyConfigLeft);
+
+            if (!hasAnyConfigLeft) {
+                userDao.setUserStatus("w", tgId);
+            }
         }
 
-        Long tgId = config.getTgUser().getId();
-        String country = config.getCountry();
+        return configs;
+    }
 
-        configDao.deleteConfigByUserIdAndCountry(tgId, country);
-
-        boolean hasAnyConfigLeft = userHasAnyConfig(tgId);
-        userDao.setUserHasConfig(tgId, hasAnyConfigLeft);
-
-        if (!hasAnyConfigLeft) {
-            userDao.setUserStatus("w", tgId);
-        }
-
-        return String.valueOf(tgId);
+    public void setUserName(Long tgId, String tgName) {
+        userDao.setUserName(tgId, tgName);
     }
 
     public String formatAllUsers() {
@@ -120,16 +142,11 @@ public class DbService {
 
         for (User user : users) {
             String name = user.getTgName() != null ? "@" + user.getTgName() : "(без username)";
-            boolean hasAnyConfig = userHasAnyConfig(user.getId());
+            List<Config> configs = configDao.getConfigsByUserId(user.getId());
 
-            String status;
-            if ("a".equals(user.getWaitAccept()) && hasAnyConfig) {
-                status = "конфиг одобрен";
-            } else if (hasAnyConfig) {
-                status = "ожидает одобрения";
-            } else {
-                status = "без конфига";
-            }
+            String status = configs.isEmpty() ? "без конфига" : configs.stream()
+                    .map(c -> c.getCountry() + ": " + statusTitle(c.getStatus()))
+                    .collect(Collectors.joining(", "));
 
             sb.append(i++).append(". ").append(name)
                     .append(" | id: ").append(user.getId())
@@ -137,6 +154,14 @@ public class DbService {
         }
 
         return sb.toString();
+    }
+
+    private static String statusTitle(String status) {
+        return switch (status) {
+            case STATUS_APPROVED -> "одобрен";
+            case STATUS_REJECTED -> "отклонён";
+            default -> "ожидает одобрения";
+        };
     }
 
     public String syncFromPanel(List<PanelClient> clients, String country) {
@@ -167,6 +192,11 @@ public class DbService {
                 continue;
             }
 
+            // Панель — источник истины для ссылок, но не для решения админа: клиента на панели заявка
+            // получает ещё до одобрения, поэтому одобренным считаем только конфиг, которого в БД не было
+            Config existing = configDao.getConfigByUserIdAndCountry(tgId, effectiveCountry);
+            boolean approved = existing == null || STATUS_APPROVED.equals(existing.getStatus());
+
             User user = userDao.getUserById(tgId);
             if (user == null) {
                 user = new User();
@@ -180,13 +210,11 @@ public class DbService {
                 if (!Boolean.TRUE.equals(user.getHasConfig())) {
                     userDao.setUserHasConfig(tgId, true);
                 }
-                if (!"a".equals(user.getWaitAccept())) {
+                if (approved && !"a".equals(user.getWaitAccept())) {
                     userDao.setUserStatus("a", tgId);
                 }
             }
 
-            // Панель — источник истины: ссылки обновляем и у уже существующих конфигов
-            Config existing = configDao.getConfigByUserIdAndCountry(tgId, effectiveCountry);
             configDao.saveConfig(
                     tgId,
                     client.getConfigName(),
@@ -197,6 +225,7 @@ public class DbService {
                     effectiveCountry
             );
             if (existing == null) {
+                configDao.setStatus(tgId, effectiveCountry, STATUS_APPROVED);
                 configsSaved++;
             }
         }
