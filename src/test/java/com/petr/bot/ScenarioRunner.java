@@ -29,11 +29,13 @@ public final class ScenarioRunner {
     private static final long ADMIN_B = 9002;
     private static final String GERM_SUB = "https://germ.test:2096/sub/";
     private static final String LATV_SUB = "https://latv.test:2096/sub/";
+    private static final String POL_SUB = "https://pol.test:2096/sub/";
 
     private static PrintStream report;
     private static FakeTelegram tg;
     private static FakePanel latv;
     private static FakePanel germ;
+    private static FakePanel pol;
     private static BotClient client;
     private static Connection db;
 
@@ -78,6 +80,9 @@ public final class ScenarioRunner {
         germ = new FakePanel(18082, "germ-token", "germ.test")
                 .inbound(2, 54228, "xhttp", "reality").inbound(3, 1235, "ws", "none")
                 .inbound(4, 50136, "xhttp", "tls").inbound(5, 443, "tcp", "reality");
+        pol = new FakePanel(18084, "pol-token", "pol.test")
+                .inbound(1, 2087, "ws", "none").inbound(2, 8443, "xhttp", "reality")
+                .inbound(3, 443, "tcp", "reality");
 
         DatabaseMigration.startMigration(System.getProperty("app.env"));
         db = DriverManager.getConnection(System.getenv("DB_LINK_PROD"), System.getenv("DB_USER"), System.getenv("DB_PASSWORD"));
@@ -94,7 +99,7 @@ public final class ScenarioRunner {
     }
 
     private static void guardAgainstRealServices() {
-        for (String name : List.of("LATV_PANEL_HOME_URL", "GERMAN_PANEL_HOME_URL", "DB_LINK_PROD")) {
+        for (String name : List.of("LATV_PANEL_HOME_URL", "GERMAN_PANEL_HOME_URL", "POL_PANEL_HOME_URL", "DB_LINK_PROD")) {
             String v = System.getenv(name);
             if (v == null || !v.contains("127.0.0.1")) {
                 throw new IllegalStateException(name + " должен указывать на 127.0.0.1 — запускайте через scripts/run-scenarios.sh");
@@ -138,6 +143,8 @@ public final class ScenarioRunner {
         scenario("Латвия: заявка, статус, одобрение, синхронизация админов", ScenarioRunner::latviaFullFlow);
         scenario("Германия: предупреждение и отмена на каждом шаге", ScenarioRunner::germanyCancel);
         scenario("Германия: новые конфиги WS / xHTTP / Оба", ScenarioRunner::germanyTypes);
+        scenario("Польша: кнопка, отмена, конфиги WS / xHTTP / Оба", ScenarioRunner::polandFlow);
+        scenario("Польша: своё одобрение, новые типы без заявки", ScenarioRunner::polandSeparateApproval);
 
         scenario("Оба: клавиатура осталась от прошлого запроса (случай с прода)", ScenarioRunner::bothOnStaleKeyboard);
         scenario("Двойное нажатие на каждом шаге", ScenarioRunner::doubleTapEveryStep);
@@ -178,7 +185,7 @@ public final class ScenarioRunner {
         scenario("Не-админ не может выполнять админские действия", ScenarioRunner::nonAdmin);
         scenario("Синхронизация: заявки не одобряются сами, ссылки обновляются", ScenarioRunner::sync);
         scenario("Удаление: формы имени, ошибки, отмена", ScenarioRunner::deleteBasics);
-        scenario("Удаление: конфиг в двух странах и старая пара _xhttp", ScenarioRunner::deleteBothCountries);
+        scenario("Удаление: конфиг во всех странах и старая пара _xhttp", ScenarioRunner::deleteBothCountries);
         scenario("Удаление при недоступной панели", ScenarioRunner::deletePanelDown);
         scenario("Username с подчёркиваниями в Markdown", ScenarioRunner::markdownUsername);
         scenario("Длинный список пользователей", ScenarioRunner::longUserList);
@@ -286,7 +293,7 @@ public final class ScenarioRunner {
         u.say("/get_config");
         u.press("🇩🇪 Германия");
         u.press("✅ Принимаю условия");
-        check("выбор типа", u.last().buttons.containsKey("Оба"));
+        check("выбор типа", u.last().buttons.containsKey("Все"));
         u.press("Отмена");
         check("отмена на выборе типа", u.last().text.contains("Привет"));
         check("панель не тронута", germ.clients.isEmpty());
@@ -294,9 +301,10 @@ public final class ScenarioRunner {
     }
 
     private static void germanyTypes() throws Exception {
-        germType("ws1", "WebSocket", ids(3, 5), true, false, true);
-        germType("xh1", "xHTTP", ids(2, 5), false, true, true);
-        germType("both1", "Оба", ids(2, 3, 5), true, true, true);
+        germType("ws1", "WebSocket", ids(3), true, false, false);
+        germType("xh1", "xHTTP", ids(2), false, true, false);
+        germType("re1", "Reality", ids(5), false, false, true);
+        germType("both1", "Все", ids(2, 3, 5), true, true, true);
     }
 
     private static void germType(String name, String button, Set<Integer> inbounds, boolean ws, boolean xhttp, boolean reality) throws Exception {
@@ -309,6 +317,68 @@ public final class ScenarioRunner {
         Msg links = lastWith(u.id, "vless://");
         check(button + ": ссылки после одобрения", links != null);
         if (links != null) expectLinks(links, ws, xhttp, reality);
+    }
+
+    private static void polandFlow() throws Exception {
+        U u = registered("warsaw");
+        u.say("/get_config");
+        check("кнопка Польши", u.last().buttons.containsKey("🇵🇱 Польша"));
+        u.press("🇵🇱 Польша");
+        check("без предупреждения о торрентах", !u.last().text.contains("торрент"));
+        check("выбор типа: по кнопке на протокол и «Все»", u.last().buttons.keySet().containsAll(
+                List.of("WebSocket", "xHTTP", "Reality", "Все")));
+        u.press("Отмена");
+        check("отмена на выборе типа", u.last().text.contains("Привет"));
+        check("панель Польши не тронута", pol.clients.isEmpty());
+
+        polType("pws", "WebSocket", ids(1), true, false, false);
+        polType("pxh", "xHTTP", ids(2), false, true, false);
+        polType("pre", "Reality", ids(3), false, false, true);
+        polType("pboth", "Все", ids(1, 2, 3), true, true, true);
+        check("Латвия и Германия не тронуты", latv.clients.isEmpty() && germ.clients.isEmpty());
+    }
+
+    private static void polType(String name, String button, Set<Integer> inbounds, boolean ws, boolean xhttp, boolean reality) throws Exception {
+        U u = registered(name);
+        requestPol(u, button);
+        check(button + ": inbound'ы в Польше", pol.inboundsOf(name + "_config").equals(inbounds));
+        FakePanel.Client c = pol.clients.get(name + "_config");
+        check(button + ": на панели записан tgId", c != null && c.tgId == u.id);
+        check(button + ": пользователю — «ожидает»", u.last().text.contains("ожидает"));
+        Msg n = notification(ADMIN_A, u.id);
+        check(button + ": заявка у админа про Польшу", n != null && n.text.contains("Польша"));
+        if (n != null) adminPress(ADMIN_A, n, "Одобрить");
+        Msg links = lastWith(u.id, "pol.test");
+        check(button + ": ссылки Польши после одобрения", links != null && links.text.contains("Польша"));
+        if (links != null) expectLinks(links, ws, xhttp, reality);
+    }
+
+    private static void polandSeparateApproval() throws Exception {
+        U u = registered("plus");
+        u.say("/get_config");
+        u.press("🇱🇻 Латвия");
+        adminPress(ADMIN_A, notification(ADMIN_A, u.id), "Одобрить");
+
+        requestPol(u, "WebSocket");
+        check("Польша — снова заявка", u.last().text.contains("ожидает"));
+        Msg n = notification(ADMIN_A, u.id);
+        check("админу пришла заявка на Польшу", n != null && n.text.contains("Польша"));
+        u.press("Проверить статус");
+        check("статус говорит, что Польша ждёт", u.last().text.contains("Польша") && u.last().text.contains("ожидает"));
+        check("статус не отдаёт неодобренную Польшу", !u.last().text.contains("pol.test"));
+        check("статус отдаёт одобренную Латвию", u.last().text.contains("latv.test"));
+
+        if (n != null) adminPress(ADMIN_A, n, "Одобрить");
+        Msg links = lastWith(u.id, "pol.test");
+        check("после одобрения пришла Польша", links != null);
+        check("вместе с Латвией", links != null && links.text.contains("latv.test"));
+
+        requestPol(u, "Все");
+        check("в одобренной Польше xHTTP сразу", u.last().text.contains("xHTTP конфиг"));
+        check("новой заявки нет", countWithExact(ADMIN_A, "approve:" + u.id) == 0);
+        check("клиент Польши во всех inbound'ах", pol.inboundsOf("plus_config").equals(ids(1, 2, 3)));
+        FakePanel.Client c = pol.clients.get("plus_config");
+        check("подписка не поменялась", c != null && u.last().text.contains(POL_SUB + c.subId));
     }
 
     /**
@@ -327,7 +397,7 @@ public final class ScenarioRunner {
         u.press("🇩🇪 Германия");
         u.press("✅ Принимаю условия");
         Msg typeKeyboard = u.last();
-        String both = typeKeyboard.buttons.get("Оба");
+        String both = typeKeyboard.buttons.get("Все");
 
         u.say("/get_config");
         u.press("🇱🇻 Латвия");
@@ -343,7 +413,7 @@ public final class ScenarioRunner {
         u.press("🇩🇪 Германия");
         u.press("✅ Принимаю условия");
         Msg second = u.last();
-        String bothAgain = second.buttons.get("Оба");
+        String bothAgain = second.buttons.get("Все");
         tg.click(u.id, u.name, second.id, second.text, bothAgain);
         tg.click(u.id, u.name, second.id, second.text, bothAgain);
         settle();
@@ -378,7 +448,7 @@ public final class ScenarioRunner {
         dbConfig(u.id, dbName, "germ", dbWs ? "stale-ws" : null, oldSub, dbXhttp ? "stale-xhttp" : null, dbReality ? "stale-reality" : null, "a");
         applyDataMigration();
 
-        requestGerm(u, "Оба");
+        requestGerm(u, "Все");
 
         check("клиент x_config в WS+XHTTP+Reality", germ.inboundsOf("x_config").equals(ids(2, 3, 5)));
         Msg m = u.last();
@@ -420,7 +490,7 @@ public final class ScenarioRunner {
         sqlExec("UPDATE tg_user SET wait_accept='a', has_config=true WHERE id=?", u.id);
         germ.put("oldname_config", "uuid-c", "old-sub", u.id, 3);
         dbConfig(u.id, "oldname_config", "germ", "stale-ws", GERM_SUB + "old-sub", null, null, "a");
-        requestGerm(u, "Оба");
+        requestGerm(u, "Все");
         check("старый клиент дополнен", germ.inboundsOf("oldname_config").equals(ids(2, 3, 5)));
         check("новый клиент не создан", !germ.clients.containsKey("newname_config"));
     }
@@ -537,7 +607,7 @@ public final class ScenarioRunner {
         u.press("🇱🇻 Латвия");
         adminPress(ADMIN_A, notification(ADMIN_A, u.id), "Одобрить");
 
-        requestGerm(u, "Оба");
+        requestGerm(u, "Все");
         check("Германия — снова заявка", u.last().text.contains("ожидает"));
         Msg n = notification(ADMIN_A, u.id);
         check("админу пришла новая заявка на Германию", n != null && n.text.contains("Германия"));
@@ -561,7 +631,7 @@ public final class ScenarioRunner {
         adminPress(ADMIN_A, notification(ADMIN_A, u.id), "Одобрить");
         int adminMessages = countAll(ADMIN_A);
         requestGerm(u, "WebSocket");
-        expectLinks(u.last(), true, false, true);
+        expectLinks(u.last(), true, false, false);
         check("админов не трогаем", countAll(ADMIN_A) == adminMessages);
     }
 
@@ -574,15 +644,19 @@ public final class ScenarioRunner {
         int adminB = countAll(ADMIN_B);
 
         requestGerm(u, "xHTTP");
-        check("xHTTP привязан без заявки", germ.inboundsOf("percountry_config").equals(ids(2, 3, 5)));
+        check("xHTTP привязан без заявки", germ.inboundsOf("percountry_config").equals(ids(2, 3)));
+        expectLinks(u.last(), true, true, false);
+
+        requestGerm(u, "Все");
+        check("«Все» добавил Reality", germ.inboundsOf("percountry_config").equals(ids(2, 3, 5)));
         expectLinks(u.last(), true, true, true);
 
-        requestGerm(u, "Оба");
-        expectLinks(u.last(), true, true, true);
+        requestGerm(u, "WebSocket");
+        check("выбор одного протокола не отвязывает остальные", germ.inboundsOf("percountry_config").equals(ids(2, 3, 5)));
 
         // Протокол, появившийся уже после одобрения (так в своё время добавился Reality)
         germ.inboundsOf("percountry_config").remove(5);
-        requestGerm(u, "WebSocket");
+        requestGerm(u, "Reality");
         check("новый протокол привязан без заявки", germ.inboundsOf("percountry_config").contains(5));
         check("его ссылка сразу в ответе", u.last().text.contains("Reality конфиг"));
 
@@ -596,7 +670,7 @@ public final class ScenarioRunner {
         Msg latvia = notification(ADMIN_A, u.id);
         check("админ видит заявку на Латвию", latvia != null && latvia.text.contains("Латвия"));
         int withLatvia = countAll(ADMIN_A);
-        requestGerm(u, "Оба");
+        requestGerm(u, "Все");
         check("одобренная страна работает, пока другая ждёт", u.last().text.contains("germ.test"));
         check("это не создало новых заявок", countAll(ADMIN_A) == withLatvia);
     }
@@ -605,7 +679,7 @@ public final class ScenarioRunner {
         U u = registered("pend");
         requestGerm(u, "WebSocket");
         int adminMessages = countAll(ADMIN_A);
-        requestGerm(u, "Оба");
+        requestGerm(u, "Все");
         check("панель дополнена", germ.inboundsOf("pend_config").equals(ids(2, 3, 5)));
         check("ссылок до одобрения нет", !u.last().text.contains("vless://"));
         check("у админа нет второго уведомления", countAll(ADMIN_A) == adminMessages);
@@ -623,7 +697,7 @@ public final class ScenarioRunner {
         u.press("🇩🇪 Германия");
         u.press("✅ Принимаю условия");
         Msg m = u.last();
-        String data = m.buttons.get("Оба");
+        String data = m.buttons.get("Все");
         tg.click(u.id, u.name, m.id, m.text, data);
         tg.click(u.id, u.name, m.id, m.text, data);
         settle();
@@ -639,14 +713,14 @@ public final class ScenarioRunner {
     private static void panelDown() throws Exception {
         U u = registered("down");
         germ.failStatus = 500;
-        requestGerm(u, "Оба");
+        requestGerm(u, "Все");
         check("показана ошибка", u.last().text.contains("Ошибка"));
         check("внутренности панели не утекли", !u.last().text.contains("secret-panel-host") && !u.last().text.contains("body="));
         check("есть кнопка повторить", u.last().buttons.containsKey("Получить конфиг"));
         check("в БД пусто", "0".equals(sql("SELECT count(*) FROM config WHERE tg_id=?", u.id)));
         check("админов не беспокоили", notification(ADMIN_A, u.id) == null);
         germ.failStatus = 0;
-        requestGerm(u, "Оба");
+        requestGerm(u, "Все");
         check("после восстановления заявка прошла", u.last().text.contains("ожидает"));
         check("клиент создан", germ.inboundsOf("down_config").equals(ids(2, 3, 5)));
     }
@@ -751,6 +825,12 @@ public final class ScenarioRunner {
         settle();
         check("тип без страны: снова выбор страны", w.last().buttons.containsKey("🇩🇪 Германия"));
         check("в чужой стране ничего не создано", !latv.clients.containsKey("legacy2_config"));
+
+        tg.click(w.id, w.name, m.id, m.text, "config_type:both:xx");
+        settle();
+        check("неизвестная страна: снова выбор страны", w.last().buttons.containsKey("🇵🇱 Польша"));
+        check("неизвестная страна ничего не создала", !latv.clients.containsKey("legacy2_config")
+                && !germ.clients.containsKey("legacy2_config") && !pol.clients.containsKey("legacy2_config"));
     }
 
     private static void userBlockedBot() throws Exception {
@@ -785,9 +865,17 @@ public final class ScenarioRunner {
         u.press("🇩🇪 Германия");
         u.press("✅ Принимаю условия");
         restartBot();
-        u.press("Оба");
+        u.press("Все");
         check("конфиг создан в Германии", germ.inboundsOf("restart_config").equals(ids(2, 3, 5)));
         check("в Латвии ничего", !latv.clients.containsKey("restart_config"));
+
+        U p = registered("restartp");
+        p.say("/get_config");
+        p.press("🇵🇱 Польша");
+        restartBot();
+        p.press("Все");
+        check("конфиг создан в Польше", pol.inboundsOf("restartp_config").equals(ids(1, 2, 3)));
+        check("в других странах ничего", !latv.clients.containsKey("restartp_config") && !germ.clients.containsKey("restartp_config"));
     }
 
     private static void restartDuringApproval() throws Exception {
@@ -877,10 +965,17 @@ public final class ScenarioRunner {
         germ.put("named_xhttp", "uuid-nx", "n-sub", 0, 2);
         dbConfig(named.id, "named_xhttp", "germ", null, GERM_SUB + "n-sub", "stale-xhttp", null, "a");
         applyDataMigration();
+        // Клиент только на польской панели
+        long polOnly = nextUserId++;
+        pol.put("polOnly_config", "uuid-q", "q-sub", polOnly, 1, 2, 3);
 
         U admin = new U(ADMIN_A, "admin_" + ADMIN_A);
         admin.say("/syncPanel");
         check("синк завершён", admin.last().text.contains("Синхронизация завершена"));
+        check("синк прошёл по всем странам", admin.last().text.contains("latv: Синхронизация")
+                && admin.last().text.contains("germ: Синхронизация") && admin.last().text.contains("pol: Синхронизация"));
+        check("клиент Польши появился одобренным", "a".equals(sql("SELECT status FROM config WHERE tg_id=? AND country='pol'", polOnly)));
+        check("у клиента Польши все ссылки", "1".equals(sql("SELECT count(*) FROM config WHERE tg_id=? AND sub_link=? AND vless_link LIKE 'vless:%' AND xhttp_link LIKE 'vless:%' AND reality_link LIKE 'vless:%'", polOnly, POL_SUB + "q-sub")));
 
         check("заявка не одобрена синком", "w".equals(sql("SELECT status FROM config WHERE tg_id=?", pending.id)));
         pending.press("Проверить статус");
@@ -935,14 +1030,17 @@ public final class ScenarioRunner {
         latv.put("del2_config", "uuid-a", "sub-a", u.id, 1, 8);
         germ.put("del2_config", "uuid-b", "sub-b", u.id, 2, 3, 5);
         germ.put("del2_xhttp", "uuid-c", "sub-b", 0, 2);
+        pol.put("del2_config", "uuid-d", "sub-d", u.id, 1, 2, 3);
         dbConfig(u.id, "del2_config", "latv", "w", LATV_SUB + "sub-a", null, "r", "a");
         dbConfig(u.id, "del2_config", "germ", "w", GERM_SUB + "sub-b", "x", "r", "a");
+        dbConfig(u.id, "del2_config", "pol", "w", POL_SUB + "sub-d", "x", "r", "a");
 
         adminDelete(ADMIN_A, "del2");
         Msg m = new U(ADMIN_A, null).last();
         check("нет ошибки удаления", !m.text.contains("Ошибка"));
         check("удалён в Латвии", !latv.clients.containsKey("del2_config"));
         check("удалён в Германии", !germ.clients.containsKey("del2_config"));
+        check("удалён в Польше", !pol.clients.containsKey("del2_config"));
         check("старый _xhttp тоже отозван", !germ.clients.containsKey("del2_xhttp"));
         check("в БД пусто", "0".equals(sql("SELECT count(*) FROM config WHERE tg_id=?", u.id)));
         exitAdmin(ADMIN_A);
@@ -1040,8 +1138,8 @@ public final class ScenarioRunner {
         u.press("🇩🇪 Германия");
         u.press("✅ Принимаю условия");
         Msg m = u.last();
-        tg.click(u.id, u.name, m.id, m.text, m.buttons.get("Оба"));
-        tg.click(u.id, u.name, m.id, m.text, m.buttons.get("Оба"));
+        tg.click(u.id, u.name, m.id, m.text, m.buttons.get("Все"));
+        tg.click(u.id, u.name, m.id, m.text, m.buttons.get("Все"));
         Thread.sleep(500);
         long t0 = System.currentTimeMillis();
         tg.say(other.id, other.name, "/help");
@@ -1113,6 +1211,12 @@ public final class ScenarioRunner {
         u.say("/get_config");
         u.press("🇩🇪 Германия");
         u.press("✅ Принимаю условия");
+        u.press(type);
+    }
+
+    private static void requestPol(U u, String type) throws Exception {
+        u.say("/get_config");
+        u.press("🇵🇱 Польша");
         u.press(type);
     }
 
@@ -1253,6 +1357,7 @@ public final class ScenarioRunner {
         tg.reset();
         latv.reset();
         germ.reset();
+        pol.reset();
         expectedApiErrors.clear();
         crashes.clear();
         sqlExec("TRUNCATE config, tg_user");

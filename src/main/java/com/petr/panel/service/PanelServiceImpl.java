@@ -38,7 +38,7 @@ public class PanelServiceImpl implements PanelService {
     private final ApiRequests api;
     private final ObjectMapper mapper = new ObjectMapper();
 
-    private final int wsInbound;
+    private final Integer wsInbound; // null → WS не используется
     private final Integer xhttpInbound; // null → XHTTP не используется
     private final Integer realityInbound; // null → Reality не используется
     private final String subBaseUrl;
@@ -189,7 +189,7 @@ public class PanelServiceImpl implements PanelService {
 
             List<Integer> missing = new ArrayList<>();
             // WS-клиенты получают XHTTP (объединение WS+XHTTP под одного клиента)
-            if (xhttpInbound != null && current.contains(wsInbound) && !current.contains(xhttpInbound)) {
+            if (wsInbound != null && xhttpInbound != null && current.contains(wsInbound) && !current.contains(xhttpInbound)) {
                 missing.add(xhttpInbound);
             }
             // Reality inbound добавляется всем бот-клиентам
@@ -228,13 +228,13 @@ public class PanelServiceImpl implements PanelService {
 
     private List<Integer> targetInboundIds(ConfigType type) {
         List<Integer> ids = new ArrayList<>();
-        if (type.includesWs()) {
+        if (type.includesWs() && wsInbound != null) {
             ids.add(wsInbound);
         }
         if (type.includesXhttp() && xhttpInbound != null) {
             ids.add(xhttpInbound);
         }
-        if (realityInbound != null && !ids.contains(realityInbound)) {
+        if (type.includesReality() && realityInbound != null && !ids.contains(realityInbound)) {
             ids.add(realityInbound);
         }
         return ids;
@@ -244,7 +244,7 @@ public class PanelServiceImpl implements PanelService {
     private Map<Integer, Integer> inboundPorts() {
         Map<Integer, Integer> ports = new HashMap<>();
         List<Integer> ids = new ArrayList<>();
-        ids.add(wsInbound);
+        if (wsInbound != null) ids.add(wsInbound);
         if (xhttpInbound != null) ids.add(xhttpInbound);
         if (realityInbound != null) ids.add(realityInbound);
 
@@ -270,7 +270,7 @@ public class PanelServiceImpl implements PanelService {
      * по порту важнее типа: ссылка лишнего inbound'а не должна занять чужое место.
      */
     private String[] classifyLinks(List<String> rawLinks, Map<Integer, Integer> ports) {
-        Integer wsPort = ports.get(wsInbound);
+        Integer wsPort = wsInbound == null ? null : ports.get(wsInbound);
         Integer xhttpPort = xhttpInbound == null ? null : ports.get(xhttpInbound);
         Integer realityPort = realityInbound == null ? null : ports.get(realityInbound);
 

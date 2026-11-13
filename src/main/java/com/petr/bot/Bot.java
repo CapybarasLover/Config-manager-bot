@@ -26,6 +26,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -141,14 +142,17 @@ public class Bot {
             });
         }
 
-        private static InlineKeyboardMarkup countryKeyboard() {
-            return new InlineKeyboardMarkup(new InlineKeyboardButton[][]{
-                    {
-                            new InlineKeyboardButton("🇱🇻 Латвия", "country:latv"),
-                            new InlineKeyboardButton("🇩🇪 Германия", "country:germ")
-                    },
-                    {new InlineKeyboardButton("Отмена", "user:cancel")}
-            });
+        /** Только страны с настроенной панелью, по две в ряд. */
+        private InlineKeyboardMarkup countryKeyboard() {
+            List<String> countries = configManager.availableCountries();
+            List<InlineKeyboardButton[]> rows = new ArrayList<>();
+            for (int i = 0; i < countries.size(); i += 2) {
+                rows.add(countries.subList(i, Math.min(i + 2, countries.size())).stream()
+                        .map(c -> new InlineKeyboardButton(countryTitle(c), "country:" + c))
+                        .toArray(InlineKeyboardButton[]::new));
+            }
+            rows.add(new InlineKeyboardButton[]{new InlineKeyboardButton("Отмена", "user:cancel")});
+            return new InlineKeyboardMarkup(rows.toArray(InlineKeyboardButton[][]::new));
         }
 
         private static InlineKeyboardMarkup germanyWarningKeyboard() {
@@ -158,16 +162,28 @@ public class Bot {
             });
         }
 
-        /** Страна лежит в самих кнопках, чтобы выбор пережил рестарт бота. */
-        private static InlineKeyboardMarkup configTypeKeyboard(String country) {
+        /**
+         * По кнопке на каждый протокол страны и «Все». Каждая кнопка даёт ровно названный протокол.
+         * Страна лежит в самих кнопках, чтобы выбор пережил рестарт бота.
+         */
+        private InlineKeyboardMarkup configTypeKeyboard(String country) {
+            InlineKeyboardButton[] single = configManager.configTypes(country).stream()
+                    .map(t -> new InlineKeyboardButton(typeTitle(t), "config_type:" + t + ":" + country))
+                    .toArray(InlineKeyboardButton[]::new);
             return new InlineKeyboardMarkup(new InlineKeyboardButton[][]{
-                    {
-                            new InlineKeyboardButton("WebSocket", "config_type:ws:" + country),
-                            new InlineKeyboardButton("xHTTP", "config_type:xhttp:" + country),
-                            new InlineKeyboardButton("Оба", "config_type:both:" + country)
-                    },
+                    single,
+                    // "both" — как у прежней кнопки «Оба», чтобы старые сообщения продолжали работать
+                    {new InlineKeyboardButton("Все", "config_type:both:" + country)},
                     {new InlineKeyboardButton("Отмена", "user:cancel")}
             });
+        }
+
+        private static String typeTitle(String type) {
+            return switch (type) {
+                case "xhttp" -> "xHTTP";
+                case "reality" -> "Reality";
+                default -> "WebSocket";
+            };
         }
 
         private static InlineKeyboardMarkup adminKeyboard() {
@@ -276,7 +292,7 @@ public class Bot {
             }
 
             long chatId = message.chat.id;
-            String configType = pendingConfigType.getOrDefault(chatId, "ws");
+            String configType = pendingConfigType.getOrDefault(chatId, "both");
             String country = pendingCountry.getOrDefault(chatId, "latv");
             Integer editMsgId = awaitingMessageId.get(chatId);
 
@@ -318,8 +334,13 @@ public class Bot {
         @CallbackHandler(data = "country:latv")
         void onCallbackCountryLatv(BotContext bot, CallbackQuery query) {
             answer(bot, query, null);
-            // На Риге нет XHTTP — выбирать тип не из чего: WS (+ Reality добавится автоматически)
-            requestConfig(bot, query, "ws", "latv");
+            chooseTypeOrRequest(bot, query, "latv");
+        }
+
+        @CallbackHandler(data = "country:pol")
+        void onCallbackCountryPol(BotContext bot, CallbackQuery query) {
+            answer(bot, query, null);
+            chooseTypeOrRequest(bot, query, "pol");
         }
 
         @CallbackHandler(data = "country:germ")
@@ -333,21 +354,35 @@ public class Bot {
         @CallbackHandler(data = "germ:confirm")
         void onCallbackGermConfirm(BotContext bot, CallbackQuery query) {
             answer(bot, query, null);
-            long chatId = query.from.id;
-            int msgId = query.message.message_id;
-            show(bot, chatId, msgId, "Выбери тип конфига:", configTypeKeyboard("germ"), false);
+            chooseTypeOrRequest(bot, query, "germ");
         }
 
         @CallbackHandler(regex = "config_type:.*")
         void onCallbackConfigType(BotContext bot, CallbackQuery query) {
             answer(bot, query, null);
             String[] parts = query.data.split(":");
-            if (parts.length < 3) {
-                // Кнопка старого формата без страны (нажата после обновления бота): уточняем страну
+            if (parts.length < 3 || !configManager.availableCountries().contains(parts[2])) {
+                // Кнопка старого формата без страны (нажата после обновления бота) или страну убрали: уточняем страну
                 handleGetConfig(bot, query.from.id, query.message.message_id);
                 return;
             }
-            requestConfig(bot, query, parts[1], "germ".equals(parts[2]) ? "germ" : "latv");
+            requestConfig(bot, query, parts[1], parts[2]);
+        }
+
+        /** В стране есть и WS, и xHTTP — даём выбрать тип; иначе сразу создаём конфиг единственного типа. */
+        private void chooseTypeOrRequest(BotContext bot, CallbackQuery query, String country) {
+            long chatId = query.from.id;
+            int msgId = query.message.message_id;
+            if (!configManager.availableCountries().contains(country)) {
+                // Кнопка из старого сообщения, а панель страны уже не настроена
+                handleGetConfig(bot, chatId, msgId);
+                return;
+            }
+            if (configManager.offersTypeChoice(country)) {
+                show(bot, chatId, msgId, "Выбери тип конфига:", configTypeKeyboard(country), false);
+            } else {
+                requestConfig(bot, query, configManager.defaultConfigType(country), country);
+            }
         }
 
         /** Создаёт/дополняет конфиг; если нет подходящего @username — просит ввести имя. */
@@ -762,7 +797,9 @@ public class Bot {
         }
 
         private static String countryTitle(String country) {
-            return "germ".equals(country) ? "🇩🇪 Германия" : "🇱🇻 Латвия";
+            if ("germ".equals(country)) return "🇩🇪 Германия";
+            if ("pol".equals(country)) return "🇵🇱 Польша";
+            return "🇱🇻 Латвия";
         }
 
         private static String formatConfigLinks(String country, String[] configs) {

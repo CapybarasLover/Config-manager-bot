@@ -16,9 +16,15 @@ java -Dapp.env=dev -jar target/Config_bot-2.0-SNAPSHOT.jar
 java -Dapp.env=prod -jar target/Config_bot-2.0-SNAPSHOT.jar
 
 # One-off: merge inbounds into the client-centric model (attaches the XHTTP inbound
-# to every WS client and the Reality inbound to every bot client; idempotent; never deletes anything)
+# to every WS client and the Reality inbound to every bot client, including those who chose a single
+# protocol; idempotent; never deletes anything)
 java -Dapp.env=prod -cp target/Config_bot-2.0-SNAPSHOT.jar com.petr.tools.MergeInbounds
-# optional arg: latv | germ | both (default both)
+# optional arg: latv | germ | pol | both (default both = every configured panel)
+
+# Smoke test against a live panel (creates and deletes a test client claudetest_config)
+java -Dapp.env=prod -cp target/Config_bot-2.0-SNAPSHOT.jar com.petr.tools.PanelSmokeTest [latv|germ|pol|both]
+# List a panel's inbounds (id, port, transport) without changing anything
+java -Dapp.env=prod -cp target/Config_bot-2.0-SNAPSHOT.jar com.petr.tools.PanelSmokeTest inbounds [latv|germ|pol]
 ```
 
 `app.env` (`prod` | `dev`) controls DB connection string and 3x-ui inbound IDs.
@@ -29,7 +35,7 @@ java -Dapp.env=prod -cp target/Config_bot-2.0-SNAPSHOT.jar com.petr.tools.MergeI
 bash scripts/run-scenarios.sh
 ```
 
-Runs every user and admin flow through the real `Bot` (`src/test/java/com/petr/bot/ScenarioRunner.java`). Telegram and both panels are local fakes (`FakeTelegram`, `FakePanel`, shaped after real v3.8.5 responses), the DB is a throwaway Postgres; `.env`, real panels and Telegram are never touched. Needs a JDK (`JAVA_BIN`), PostgreSQL binaries (`PG_BIN`) and an already built `target/Config_bot-2.0-SNAPSHOT.jar`: Lombok classes are taken from that jar, so rebuild it after changing them. The bot's own output goes to `target/scenarios/bot.log`. Add a scenario for every bug fixed.
+Runs every user and admin flow through the real `Bot` (`src/test/java/com/petr/bot/ScenarioRunner.java`). Telegram and all three panels are local fakes (`FakeTelegram`, `FakePanel`, shaped after real v3.8.5 responses), the DB is a throwaway Postgres; `.env`, real panels and Telegram are never touched. Needs a JDK (`JAVA_BIN`), PostgreSQL binaries (`PG_BIN`) and an already built `target/Config_bot-2.0-SNAPSHOT.jar`: Lombok classes are taken from that jar, so rebuild it after changing them. The bot's own output goes to `target/scenarios/bot.log`. Add a scenario for every bug fixed.
 
 ## Docker
 
@@ -53,12 +59,16 @@ Copy `.env.example` → `.env` and fill all values before running.
 | `GERM_SUB_BASE_URL` | Germany subscription base URL (e.g. `https://host:2096/sub/`) |
 | `GERM_WS_INBOUND` | Germany WS inbound ID (optional, default `3`) |
 | `GERM_XHTTP_INBOUND` | Germany XHTTP inbound ID (optional, default `2`) |
-| `GERM_REALITY_INBOUND` | Germany Reality inbound ID, attached to every client (optional, default `5`; `0` disables) |
+| `GERM_REALITY_INBOUND` | Germany Reality inbound ID, offered as the «Reality» type (optional, default `5`; `0` disables) |
 | `LATV_REALITY_INBOUND_PROD` | Latvian Reality inbound ID in prod (optional, default `8`; `0` disables) |
 | `LATV_REALITY_INBOUND_DEV` | Latvian Reality inbound ID in dev (optional; if absent, disabled) |
 | `LATV_SUB_BASE_URL` | Latvian subscription base URL (optional, default `https://petromerzlikino.site:2096/sub/`) |
 | `LATV_WS_INBOUND_PROD` | Latvian WS inbound ID in prod (optional, default `1` — `riga-ws`) |
 | `LATV_WS_INBOUND_DEV` | Latvian WS inbound ID in dev (optional, default `3`) |
+| `POL_PANEL_HOME_URL` | Base URL for the Polish (Warsaw) panel. **Optional:** empty → Poland is hidden (no button, no panel calls) |
+| `XUI_API_TOKEN_POL` | Polish panel API token; required when `POL_PANEL_HOME_URL` is set |
+| `POL_SUB_BASE_URL` | Poland subscription base URL; required when `POL_PANEL_HOME_URL` is set |
+| `POL_WS_INBOUND` / `POL_XHTTP_INBOUND` / `POL_REALITY_INBOUND` | Polish inbound IDs. No defaults; empty or `0` → not used; at least one is required, a non-number is a startup error |
 | `DB_LINK_PROD` / `DB_LINK_DEV` | JDBC URLs for prod/dev PostgreSQL |
 | `DB_USER` / `DB_PASSWORD` / `DB_NAME` | PostgreSQL credentials |
 | `ADMIN_CHATS` | Comma-separated Telegram chat IDs of admins (1 or more) |
@@ -99,18 +109,20 @@ one subId) attached to multiple inbounds (WS + XHTTP). The subscription
 (two separate clients per user sharing one subId) is no longer valid — duplicate
 subId across different emails is rejected.
 
-**Single implementation, per-panel config.** Both panels run the **same** request
-and service logic — they differ only by configuration. There is no Latv/Germ code
+**Single implementation, per-panel config.** All panels run the **same** request
+and service logic — they differ only by configuration. There is no per-country code
 fork anymore:
 - **`PanelConfig`** — holds one panel's settings (label, baseUrl, credentials,
-  `wsInbound`, `xhttpInbound` (nullable → XHTTP disabled), `realityInbound` (nullable; attached to **every** client regardless of ConfigType, so it lands in the subscription), `subBaseUrl`). Factories
-  `PanelConfig.latv()` / `PanelConfig.germ()` build these from env.
+  `wsInbound` (nullable → WS disabled), `xhttpInbound` (nullable → XHTTP disabled), `realityInbound` (nullable → Reality disabled), `subBaseUrl`). Factories
+  `PanelConfig.latv()` / `germ()` / `pol()` build these from env; `PanelConfig.COUNTRIES` (`latv`, `germ`, `pol`) is the button order and `forCountry(code)` the lookup. `offersTypeChoice()` (WS and XHTTP both present) decides whether the user picks a type; `singleTypes()` gives one button per configured protocol. Otherwise `defaultType()` (`BOTH` — every protocol of the panel) is used without asking, so Riga gives WS + Reality.
+- **`ConfigType`** — `WS` / `XHTTP` / `REALITY` attach exactly that protocol, `BOTH` (button «Все», callback `both`, same data as the former «Оба» so old messages keep working) attaches every protocol of the panel. Reality is no longer attached on its own: a user who picks «WebSocket» gets WS only. Attaching never detaches: picking one protocol later keeps the ones a client already has.
   - Latv: WS inbound from `LATV_WS_INBOUND_PROD/DEV` (default prod=`1`/dev=`3`); **no XHTTP** (removed from the Riga server; hard-coded `null`, the user skips the config-type choice); Reality inbound `LATV_REALITY_INBOUND_PROD` (default `8`); sub base from `LATV_SUB_BASE_URL` (default `https://petromerzlikino.site:2096/sub/`).
   - Germ: WS inbound `GERM_WS_INBOUND` (default `3`), XHTTP inbound `GERM_XHTTP_INBOUND` (default `2`), Reality inbound `GERM_REALITY_INBOUND` (default `5`), sub base `GERM_SUB_BASE_URL`.
+  - Pol (Warsaw): `pol()` returns `null` without `POL_PANEL_HOME_URL`, and `ConfigManagerImpl` then skips the country (the bot must start without Polish secrets). Inbounds only from `POL_*_INBOUND`, no defaults.
 - **`ApiRequestsImpl`** (one class for all panels) — HTTP client (forced HTTP/1.1). Authenticates with the panel **API token** via `Authorization: Bearer <token>` on every request — no login/session/cookies/CSRF (the panel skips CSRF for Bearer-authed, non-browser callers). `executeWithRetry` retries up to 2× on `RequestException`. Requests time out (10 s connect, 20 s request). Client endpoints (`add`/`attach`/`del`/`get`/`links`/`list`) send/receive **JSON** (`application/json`).
 - **`PanelServiceImpl`** (one class for all panels) — `createClient(email, tgId, ConfigType)` is **create-or-attach**: no client → create in target inbounds; client exists → attach the missing inbounds, reusing its UUID/subId. Returns `String[]{wsLink, subLink, xhttpLink, realityLink}` (nulls allowed); links are fetched from the panel (`links/{email}`) and classified by matching the link port against each inbound's port (`GET inbounds/get/{id}`), falling back to `type=xhttp`/`splithttp` → xHTTP, `type=ws` → WS, else → Reality. `readClient(email)` returns the current links without changing the panel. `deleteClient(email)` removes the client from all inbounds in one call, together with its old `{base}_xhttp` twin if one exists (otherwise a deleted user keeps a working xHTTP link). Old `_xhttp` clients are never synced into the DB.
 
-**`ConfigManagerImpl`** — `getConfigs(...)` always calls the panel's create-or-attach (never decides from DB links what is missing), then overwrites the DB links with what the panel returns. Builds `new PanelServiceImpl(PanelConfig.latv())` and `new PanelServiceImpl(PanelConfig.germ())`. Dispatches to the correct panel based on `country` param ("latv" / "germ"). Country stored in DB `config.country` column. Requests of one user are serialized (double tap). A first request for a name owned by another user (DB row, or a non-zero foreign `tgId` on the panel) throws `ConfigNameTakenException` and the bot asks for another name: create-or-attach would otherwise hand over someone else's client. `getConfigs(userId)` returns approved configs only and refreshes their links from the panel, falling back to the DB if it is down.
+**`ConfigManagerImpl`** — `getConfigs(...)` always calls the panel's create-or-attach (never decides from DB links what is missing), then overwrites the DB links with what the panel returns. Builds one `PanelServiceImpl` per configured country of `PanelConfig.COUNTRIES` (`availableCountries()` drives the country buttons). Dispatches to the correct panel based on `country` param ("latv" / "germ" / "pol"); a country without a panel throws instead of falling back to another country, so a config is never created on the wrong server. Country stored in DB `config.country` column. Requests of one user are serialized (double tap). A first request for a name owned by another user (DB row, or a non-zero foreign `tgId` on the panel) throws `ConfigNameTakenException` and the bot asks for another name: create-or-attach would otherwise hand over someone else's client. `getConfigs(userId)` returns approved configs only and refreshes their links from the panel, falling back to the DB if it is down.
 
 **`MergeInbounds`** (`com.petr.tools.MergeInbounds`) — one-off migration script. Reads `clients/list` (which includes each client's `inboundIds`); for every bot client (`_config` suffix or non-zero `tgId`) attaches the XHTTP inbound if it is in the WS inbound, and the Reality inbound always. Leaves old separate `_xhttp` clients untouched. Idempotent.
 
@@ -139,7 +151,7 @@ fork anymore:
 | `sub_link` | TEXT | Subscription URL |
 | `xhttp_link` | TEXT | XHTTP VLESS link (nullable — old configs don't have it) |
 | `reality_link` | TEXT | Reality link (nullable) |
-| `country` | VARCHAR(10) | `"latv"` or `"germ"` — determines which panel to use for delete |
+| `country` | VARCHAR(10) | `"latv"`, `"germ"` or `"pol"` — determines which panel to use for delete |
 | `status` | VARCHAR(5) | `"w"` waiting, `"a"` approved, `"d"` rejected |
 
 Liquibase changesets: `src/main/resources/db/changeset/` (SQL format, master: `db.changelog-master.yaml`).
@@ -155,11 +167,14 @@ User configs are named `{base}_config` (e.g. `petr_config`). The `_config` suffi
 2. **[Получить конфиг]** callback → edits message to country selection keyboard:
    ```
    [ 🇱🇻 Латвия ] [ 🇩🇪 Германия ]
+   [  🇵🇱 Польша  ]
    [     Отмена     ]
    ```
+   Only countries with a configured panel are shown, two per row (Poland disappears without `POL_PANEL_HOME_URL`).
 3. **[🇱🇻 Латвия]** → no type choice (Riga has only WS + Reality) → goes straight to step 5
    **[🇩🇪 Германия]** → shows torrent warning with **[✅ Принимаю условия]** / **[❌ Отмена]**
-4. **[Принимаю условия]** → shows config type keyboard (WS / xHTTP / Оба)
+   **[🇵🇱 Польша]** → no warning; type keyboard if the panel has both WS and XHTTP, otherwise straight to step 5
+4. **[Принимаю условия]** → shows config type keyboard: `[ WebSocket ] [ xHTTP ] [ Reality ]`, then `[ Все ]` (a protocol button only if the panel has it). Each button gives exactly the named protocol, «Все» gives all of them. The choice itself is generic (`chooseTypeOrRequest`): it is offered only when the country's panel has both WS and XHTTP
 5. Config type chosen:
    - Has valid @username → attempt config creation (edits the message)
    - No valid @username → edits message to prompt text input + **[Отмена]**; state = `awaiting_config_name`
@@ -206,7 +221,7 @@ User configs are named `{base}_config` (e.g. `petr_config`). The `_config` suffi
 
 ## Panel sync (`/syncPanel`)
 
-Reads all clients via `GET /panel/api/clients/list`, iterates records with non-zero `tgId`, and for each fetches `GET /panel/api/clients/links/{email}` to rebuild the WS/xHTTP links (sub link from `subId`). Upserts users and configs in DB. Configs new to the DB become approved; existing ones keep their status, because a pending request already has a client on the panel and sync must not approve it. Clients with `tgId=0` update links of a known `_config` by name; `_xhttp` clients are skipped.
+Runs for every configured panel; each result line starts with the country code. Reads all clients via `GET /panel/api/clients/list`, iterates records with non-zero `tgId`, and for each fetches `GET /panel/api/clients/links/{email}` to rebuild the WS/xHTTP links (sub link from `subId`). Upserts users and configs in DB. Configs new to the DB become approved; existing ones keep their status, because a pending request already has a client on the panel and sync must not approve it. Clients with `tgId=0` update links of a known `_config` by name; `_xhttp` clients are skipped.
 
 ## 3x-ui API notes (client-centric, ≥ v3.2.5)
 
@@ -224,4 +239,4 @@ Reads all clients via `GET /panel/api/clients/list`, iterates records with non-z
 
 ## CI/CD
 
-GitHub Actions (`.github/workflows/push_workflow.yml`) on push to `master` via self-hosted runner: rebuilds Docker image, waits for health check, verifies DB connectivity (`COUNT(*) FROM tg_user`).
+GitHub Actions (`.github/workflows/push_workflow.yml`) on push to `master` via self-hosted runner: rebuilds Docker image, waits for health check, verifies DB connectivity (`COUNT(*) FROM tg_user`). The `.env` is written from repository secrets; a missing secret becomes an empty value, so the `POL_*` secrets are optional (Poland stays hidden until `POL_PANEL_HOME_URL` is set). A new env var must be added both to the "Create .env" step and to `.env.example`.

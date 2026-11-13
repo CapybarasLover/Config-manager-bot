@@ -14,12 +14,11 @@ public interface PanelService {
     /**
      * Создаёт или дополняет клиента (client-centric): один email/UUID/subId,
      * привязанный к нужным inbound'ам. Если клиент уже есть — недостающие
-     * inbound'ы привязываются (attach), UUID/subId переиспользуются.
+     * inbound'ы привязываются (attach), UUID/subId переиспользуются. Уже привязанные
+     * inbound'ы не отвязываются, даже если type их не включает.
      *
      * @param email конечный email клиента на панели (он же config_name)
-     * Доп. inbound (если настроен) привязывается всегда, независимо от type.
-     *
-     * @param type  WS / XHTTP / BOTH
+     * @param type  WS / XHTTP / REALITY — ровно этот протокол; BOTH — все протоколы панели
      * @return [wsLink, subLink, xhttpLink, realityLink] — null для отсутствующих
      */
     String[] createClient(String email, long tgId, ConfigType type)

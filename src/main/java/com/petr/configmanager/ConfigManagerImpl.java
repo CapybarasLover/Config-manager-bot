@@ -19,18 +19,64 @@ import java.util.function.Predicate;
 
 public class ConfigManagerImpl implements ConfigManager {
 
-    private final PanelService latvPanelService = new PanelServiceImpl(PanelConfig.latv());
-    private final PanelService germPanelService = new PanelServiceImpl(PanelConfig.germ());
+    /** Только настроенные страны, в порядке кнопок. */
+    private final Map<String, PanelConfig> panelConfigs = new LinkedHashMap<>();
+    private final Map<String, PanelService> panels = new LinkedHashMap<>();
     private final DbService dbService = new DbService();
     private final Map<Long, Object> userLocks = new ConcurrentHashMap<>();
 
+    public ConfigManagerImpl() {
+        for (String country : PanelConfig.COUNTRIES) {
+            PanelConfig cfg = PanelConfig.forCountry(country);
+            if (cfg == null) {
+                System.out.println("[ConfigManager] панель " + country + " не настроена — страна скрыта");
+                continue;
+            }
+            panelConfigs.put(country, cfg);
+            panels.put(country, new PanelServiceImpl(cfg));
+        }
+    }
+
+    /** Нет панели — не подменяем другой страной: иначе конфиг создастся не на том сервере. */
     private PanelService panelFor(String country) {
-        return "germ".equalsIgnoreCase(country) ? germPanelService : latvPanelService;
+        PanelService panel = panels.get(country);
+        if (panel == null) {
+            throw new IllegalStateException("Панель страны " + country + " не настроена");
+        }
+        return panel;
+    }
+
+    private PanelConfig panelConfigFor(String country) {
+        PanelConfig cfg = panelConfigs.get(country);
+        if (cfg == null) {
+            throw new IllegalStateException("Панель страны " + country + " не настроена");
+        }
+        return cfg;
+    }
+
+    @Override
+    public List<String> availableCountries() {
+        return List.copyOf(panels.keySet());
+    }
+
+    @Override
+    public boolean offersTypeChoice(String country) {
+        return panelConfigFor(country).offersTypeChoice();
+    }
+
+    @Override
+    public String defaultConfigType(String country) {
+        return panelConfigFor(country).defaultType().toCallbackData();
+    }
+
+    @Override
+    public List<String> configTypes(String country) {
+        return panelConfigFor(country).singleTypes().stream().map(ConfigType::toCallbackData).toList();
     }
 
     @Override
     public String getAllConfigs() throws IOException, InterruptedException {
-        return latvPanelService.listClients();
+        return panelFor("latv").listClients();
     }
 
     @Override
@@ -38,7 +84,7 @@ public class ConfigManagerImpl implements ConfigManager {
             throws IOException, InterruptedException {
 
         String effectiveCountry = nvl(country, "latv");
-        ConfigType type = ConfigType.fromString(nvl(configType, "ws"));
+        ConfigType type = ConfigType.fromString(nvl(configType, "both"));
         PanelService panel = panelFor(effectiveCountry);
 
         // Двойное нажатие обрабатывается двумя потоками: без блокировки оба создадут клиента
@@ -93,8 +139,9 @@ public class ConfigManagerImpl implements ConfigManager {
     public Map<String, String[]> getConfigs(Long userId) throws IOException, InterruptedException {
         Map<String, String[]> result = new LinkedHashMap<>();
 
-        // Все страны пользователя, Латвия первой (раньше показывалась только первая по алфавиту — Германия)
-        for (String country : List.of("latv", "germ")) {
+        // Все страны пользователя в порядке кнопок (раньше показывалась только первая по алфавиту — Германия).
+        // Страну без панели тоже показываем: freshLinks отдаст ссылки из БД
+        for (String country : PanelConfig.COUNTRIES) {
             Config config = dbService.getConfig(userId, country);
             if (config != null && DbService.STATUS_APPROVED.equals(config.getStatus())) {
                 result.put(country, freshLinks(userId, config));
@@ -227,9 +274,15 @@ public class ConfigManagerImpl implements ConfigManager {
 
     @Override
     public String syncFromPanel() throws IOException, InterruptedException {
-        String latvResult = dbService.syncFromPanel(latvPanelService.getClients(), "latv");
-        String germResult = dbService.syncFromPanel(germPanelService.getClients(), "germ");
-        return latvResult + "\n" + germResult;
+        StringBuilder result = new StringBuilder();
+        for (Map.Entry<String, PanelService> panel : panels.entrySet()) {
+            if (!result.isEmpty()) {
+                result.append("\n");
+            }
+            result.append(panel.getKey()).append(": ")
+                    .append(dbService.syncFromPanel(panel.getValue().getClients(), panel.getKey()));
+        }
+        return result.toString();
     }
 
     private static String nvl(String v, String def) {

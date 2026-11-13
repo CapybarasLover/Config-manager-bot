@@ -19,11 +19,12 @@ import java.util.List;
 
 /**
  * Смоук-тест против живой панели. Создаёт тестового клиента {@value #EMAIL} (tgId=0,
- * в БД не попадает), проверяет сценарий «один тип → потом Оба», наличие Reality в
+ * в БД не попадает), проверяет сценарий «один тип → потом Все», наличие Reality в
  * подписке и раскладку ссылок, затем удаляет клиента. Реальных клиентов не трогает.
  *
  * Запуск (те же env, что и боту):
- *   java -Dapp.env=prod -cp target/Config_bot-2.0-SNAPSHOT.jar com.petr.tools.PanelSmokeTest [latv|germ|both]
+ *   java -Dapp.env=prod -cp target/Config_bot-2.0-SNAPSHOT.jar com.petr.tools.PanelSmokeTest [latv|germ|pol|both]
+ * Список inbound'ов панели (ничего не меняет): ... PanelSmokeTest inbounds [latv|germ|pol]
  */
 public class PanelSmokeTest {
 
@@ -34,23 +35,28 @@ public class PanelSmokeTest {
     public static void main(String[] args) {
         String target = (args.length > 0) ? args[0].trim().toLowerCase() : "both";
         if (target.equals("inbounds")) {
-            listInbounds(safeCfg("latv"));
-            listInbounds(safeCfg("germ"));
+            String only = args.length > 1 ? args[1].trim().toLowerCase() : "both";
+            for (String country : PanelConfig.COUNTRIES) {
+                if (only.equals("both") || only.equals(country)) listInbounds(safeCfg(country, !only.equals("both")));
+            }
             return;
         }
-        if (target.equals("both") || target.equals("latv")) {
-            run(safeCfg("latv"));
-        }
-        if (target.equals("both") || target.equals("germ")) {
-            run(safeCfg("germ"));
+        for (String country : PanelConfig.COUNTRIES) {
+            if (target.equals("both") || target.equals(country)) run(safeCfg(country, !target.equals("both")));
         }
         System.out.println(failures == 0 ? "\n=== ВСЁ ОК ===" : "\n=== ПРОВАЛОВ: " + failures + " ===");
         System.exit(failures == 0 ? 0 : 1);
     }
 
-    private static PanelConfig safeCfg(String country) {
+    /** @param required панель выбрана явно: если она не настроена, это провал, а не пропуск */
+    private static PanelConfig safeCfg(String country, boolean required) {
         try {
-            return "germ".equals(country) ? PanelConfig.germ() : PanelConfig.latv();
+            PanelConfig cfg = PanelConfig.forCountry(country);
+            if (cfg == null) {
+                if (required) fail("[" + country + "] панель не настроена (нет POL_PANEL_HOME_URL)");
+                else System.out.println("[" + country + "] панель не настроена — пропуск");
+            }
+            return cfg;
         } catch (Exception e) {
             fail("[" + country + "] конфиг панели не собран: " + e.getMessage());
             return null;
@@ -65,6 +71,7 @@ public class PanelSmokeTest {
 
         ApiRequests api = new ApiRequestsImpl(cfg);
         PanelService panel = new PanelServiceImpl(cfg);
+        boolean hasWs = cfg.wsInbound != null;
         boolean hasXhttp = cfg.xhttpInbound != null;
 
         try {
@@ -73,24 +80,25 @@ public class PanelSmokeTest {
                 api.deleteClient(EMAIL);
             }
 
-            // Шаг 1: один тип (XHTTP, если есть, иначе WS)
-            ConfigType first = hasXhttp ? ConfigType.XHTTP : ConfigType.WS;
+            // Шаг 1: один тип (XHTTP, если есть, иначе WS, иначе Reality) — привязывается только он
+            ConfigType first = hasXhttp ? ConfigType.XHTTP : hasWs ? ConfigType.WS : ConfigType.REALITY;
             String[] r1 = panel.createClient(EMAIL, 0, first);
             print(tag + " шаг 1 (" + first + ")", r1);
             check(tag, "подписка есть", r1[1] != null);
-            check(tag, "Reality-ссылка есть", cfg.realityInbound == null || r1[3] != null);
+            boolean realityFirst = first == ConfigType.REALITY;
+            check(tag, "Reality " + (realityFirst ? "есть" : "ещё НЕ привязан"), (r1[3] != null) == realityFirst);
             if (hasXhttp) {
                 check(tag, "xHTTP-ссылка есть", r1[2] != null);
                 check(tag, "WS ещё НЕ привязан", r1[0] == null);
             } else {
-                check(tag, "WS-ссылка есть", r1[0] != null);
+                check(tag, "WS-ссылка " + (hasWs ? "есть" : "отсутствует"), (r1[0] != null) == hasWs);
                 check(tag, "xHTTP нет", r1[2] == null);
             }
 
-            // Шаг 2: «Оба» — должен добавиться недостающий inbound (фикс бага)
+            // Шаг 2: «Все» — должны добавиться недостающие inbound'ы (фикс бага)
             String[] r2 = panel.createClient(EMAIL, 0, ConfigType.BOTH);
             print(tag + " шаг 2 (BOTH)", r2);
-            check(tag, "WS-ссылка есть", r2[0] != null);
+            check(tag, "WS-ссылка " + (hasWs ? "есть" : "отсутствует"), (r2[0] != null) == hasWs);
             check(tag, "xHTTP-ссылка " + (hasXhttp ? "есть" : "отсутствует"), (r2[2] != null) == hasXhttp);
             check(tag, "Reality-ссылка есть", cfg.realityInbound == null || r2[3] != null);
             check(tag, "подписка не поменялась", r1[1] != null && r1[1].equals(r2[1]));
@@ -99,12 +107,12 @@ public class PanelSmokeTest {
             List<Integer> ids = new ArrayList<>();
             if (client != null) client.path("inboundIds").forEach(n -> ids.add(n.asInt()));
             System.out.println(tag + " inboundIds клиента: " + ids);
-            check(tag, "привязан к WS " + cfg.wsInbound, ids.contains(cfg.wsInbound));
+            if (hasWs) check(tag, "привязан к WS " + cfg.wsInbound, ids.contains(cfg.wsInbound));
             if (hasXhttp) check(tag, "привязан к XHTTP " + cfg.xhttpInbound, ids.contains(cfg.xhttpInbound));
             if (cfg.realityInbound != null) check(tag, "привязан к Reality " + cfg.realityInbound, ids.contains(cfg.realityInbound));
 
             // Шаг 3: подписка отдаёт все протоколы
-            int expected = 1 + (hasXhttp ? 1 : 0) + (cfg.realityInbound != null ? 1 : 0);
+            int expected = (hasWs ? 1 : 0) + (hasXhttp ? 1 : 0) + (cfg.realityInbound != null ? 1 : 0);
             int inSub = countSubLinks(r2[1]);
             System.out.println(tag + " ссылок в подписке: " + inSub + " (ожидается ≥ " + expected + ")");
             check(tag, "в подписке все протоколы", inSub >= expected);
