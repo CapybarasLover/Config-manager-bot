@@ -43,6 +43,8 @@ env -i PATH="$PATH" SYSTEMROOT="${SYSTEMROOT:-}" TEMP="${TEMP:-/tmp}" TMP="${TMP
     BOT_TOKEN=000:test \
     LATV_PANEL_HOME_URL=http://127.0.0.1:18081/ XUI_API_TOKEN_LATV=latv-token LATV_SUB_BASE_URL=https://latv.test:2096/sub/ \
     GERMAN_PANEL_HOME_URL=http://127.0.0.1:18082/ XUI_API_TOKEN_GERM=germ-token GERM_SUB_BASE_URL=https://germ.test:2096/sub/ \
+    POL_PANEL_HOME_URL=http://127.0.0.1:18084/ XUI_API_TOKEN_POL=pol-token POL_SUB_BASE_URL=https://pol.test:2096/sub/ \
+    POL_WS_INBOUND=1 POL_XHTTP_INBOUND=2 POL_REALITY_INBOUND=3 \
     DB_LINK_PROD="jdbc:postgresql://127.0.0.1:$PG_PORT/bot_scen" DB_LINK_DEV="jdbc:postgresql://127.0.0.1:$PG_PORT/bot_scen" \
     DB_USER=botsa DB_PASSWORD= DB_NAME=bot_scen ADMIN_CHATS=9001,9002 \
     "$JAVA_BIN/java" -Dapp.env=prod -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 \

@@ -5,6 +5,18 @@ import java.util.List;
 import java.util.Map;
 
 public interface ConfigManager {
+    /** Страны с настроенной панелью, в порядке кнопок. */
+    List<String> availableCountries();
+
+    /** В стране есть и WS, и xHTTP — пользователь выбирает тип конфига. */
+    boolean offersTypeChoice(String country);
+
+    /** Тип конфига, когда выбирать не из чего: "both" — все протоколы панели. */
+    String defaultConfigType(String country);
+
+    /** Протоколы страны для кнопок выбора ("ws" / "xhttp" / "reality"); кнопка «Все» — это "both". */
+    List<String> configTypes(String country);
+
     String getAllConfigs() throws IOException, InterruptedException;
 
     String[] getConfigs(Long userId, String username, String configType, String country)

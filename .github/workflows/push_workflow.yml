@@ -21,6 +21,12 @@ jobs:
           GERM_SUB_BASE_URL=${{ secrets.GERM_SUB_BASE_URL }}
           LATV_PANEL_HOME_URL=${{ secrets.LATV_PANEL_HOME_URL }}
           XUI_API_TOKEN_LATV=${{ secrets.XUI_API_TOKEN_LATV }}
+          POL_PANEL_HOME_URL=${{ secrets.POL_PANEL_HOME_URL }}
+          XUI_API_TOKEN_POL=${{ secrets.XUI_API_TOKEN_POL }}
+          POL_SUB_BASE_URL=${{ secrets.POL_SUB_BASE_URL }}
+          POL_WS_INBOUND=${{ secrets.POL_WS_INBOUND }}
+          POL_XHTTP_INBOUND=${{ secrets.POL_XHTTP_INBOUND }}
+          POL_REALITY_INBOUND=${{ secrets.POL_REALITY_INBOUND }}
           LATV_XHTTP_INBOUND_PROD=${{ secrets.LATV_XHTTP_INBOUND_PROD }}
           LATV_XHTTP_INBOUND_DEV=${{ secrets.LATV_XHTTP_INBOUND_DEV }}
           DB_LINK_PROD=${{ secrets.DB_LINK_PROD }}
@@ -40,6 +46,12 @@ jobs:
             echo "GERM_SUB_BASE_URL="
             echo "LATV_PANEL_HOME_URL="
             echo "XUI_API_TOKEN_LATV="
+            echo "POL_PANEL_HOME_URL="
+            echo "XUI_API_TOKEN_POL="
+            echo "POL_SUB_BASE_URL="
+            echo "POL_WS_INBOUND="
+            echo "POL_XHTTP_INBOUND="
+            echo "POL_REALITY_INBOUND="
             echo "LATV_XHTTP_INBOUND_PROD="
             echo "LATV_XHTTP_INBOUND_DEV="
             echo "DB_LINK_PROD="

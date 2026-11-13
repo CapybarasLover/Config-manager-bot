@@ -1,21 +1,29 @@
 package com.petr.panel;
 
+import com.petr.configmanager.ConfigType;
+
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Конфигурация одной 3x-ui панели. Логика запросов/сервиса одинакова для всех
  * панелей — различается только этот конфиг (URL, креды, ID inbound'ов, sub-база).
  */
 public class PanelConfig {
 
-    public final String label;          // метка для логов ("Latv" / "Germ")
+    /** Коды стран в порядке кнопок; совпадают со значениями {@code config.country} в БД. */
+    public static final List<String> COUNTRIES = List.of("latv", "germ", "pol");
+
+    public final String label;          // метка для логов ("Latv" / "Germ" / "Pol")
     public final String baseUrl;        // оканчивается на "/"
     public final String apiToken;       // API-токен панели (Authorization: Bearer)
-    public final int wsInbound;         // ID WS inbound'а
+    public final Integer wsInbound;     // ID WS inbound'а; null → WS не используется
     public final Integer xhttpInbound;  // ID XHTTP inbound'а; null → XHTTP не используется
-    public final Integer realityInbound;  // ID Reality inbound'а (добавляется всем клиентам); null → не используется
+    public final Integer realityInbound;  // ID Reality inbound'а; null → Reality не используется
     public final String subBaseUrl;     // база ссылки подписки (оканчивается на "/")
 
     public PanelConfig(String label, String baseUrl, String apiToken,
-                       int wsInbound, Integer xhttpInbound, Integer realityInbound, String subBaseUrl) {
+                       Integer wsInbound, Integer xhttpInbound, Integer realityInbound, String subBaseUrl) {
         this.label = label;
         this.baseUrl = normalizeSlash(baseUrl);
         this.apiToken = apiToken;
@@ -23,6 +31,38 @@ public class PanelConfig {
         this.xhttpInbound = xhttpInbound;
         this.realityInbound = realityInbound;
         this.subBaseUrl = normalizeSlash(subBaseUrl);
+    }
+
+    /**
+     * В стране есть и WS, и xHTTP — пользователь выбирает тип конфига. На Риге (WS + Reality) выбора нет:
+     * пользователь сразу получает оба протокола.
+     */
+    public boolean offersTypeChoice() {
+        return wsInbound != null && xhttpInbound != null;
+    }
+
+    /** Кнопки выбора типа: по одной на каждый настроенный протокол (плюс общая «Все»). */
+    public List<ConfigType> singleTypes() {
+        List<ConfigType> types = new ArrayList<>();
+        if (wsInbound != null) types.add(ConfigType.WS);
+        if (xhttpInbound != null) types.add(ConfigType.XHTTP);
+        if (realityInbound != null) types.add(ConfigType.REALITY);
+        return types;
+    }
+
+    /** Тип, когда выбирать не из чего: все протоколы панели. */
+    public ConfigType defaultType() {
+        return ConfigType.BOTH;
+    }
+
+    /** Конфиг панели страны из {@link #COUNTRIES}; null — панель страны не настроена. */
+    public static PanelConfig forCountry(String country) {
+        return switch (country) {
+            case "latv" -> latv();
+            case "germ" -> germ();
+            case "pol" -> pol();
+            default -> throw new IllegalArgumentException("Неизвестная страна: " + country);
+        };
     }
 
     /**
@@ -67,6 +107,33 @@ public class PanelConfig {
         );
     }
 
+    /**
+     * Польская панель (Варшава). Необязательная: без POL_PANEL_HOME_URL возвращает null, и кнопки «Польша» нет.
+     * Умолчаний у ID inbound'ов нет: POL_WS_INBOUND, POL_XHTTP_INBOUND, POL_REALITY_INBOUND (пусто или 0 —
+     * inbound не используется), нужен хотя бы один.
+     */
+    public static PanelConfig pol() {
+        String url = env("POL_PANEL_HOME_URL");
+        if (url == null || url.isBlank()) {
+            return null;
+        }
+        Integer ws = optionalInbound("POL_WS_INBOUND");
+        Integer xhttp = optionalInbound("POL_XHTTP_INBOUND");
+        Integer reality = optionalInbound("POL_REALITY_INBOUND");
+        if (ws == null && xhttp == null && reality == null) {
+            throw new RuntimeException("Для Польши не задан ни один inbound: POL_WS_INBOUND, POL_XHTTP_INBOUND, POL_REALITY_INBOUND");
+        }
+        return new PanelConfig(
+                "Pol",
+                url,
+                req("XUI_API_TOKEN_POL"),
+                ws,
+                xhttp,
+                reality,
+                req("POL_SUB_BASE_URL")
+        );
+    }
+
     // ── Хелперы ───────────────────────────────────────────────────────────────
 
     private static String env(String name) {
@@ -106,6 +173,19 @@ public class PanelConfig {
         if (t.equals("0") || t.equals("none") || t.equals("off")) return null;
         Integer parsed = parseOrNull(t);
         return parsed != null ? parsed : def;
+    }
+
+    /** Пусто или "0"/"none"/"off" → null (inbound не используется); не число → ошибка, а не тихое отключение. */
+    private static Integer optionalInbound(String name) {
+        String v = env(name);
+        if (v == null || v.isBlank()) return null;
+        String t = v.trim().toLowerCase();
+        if (t.equals("0") || t.equals("none") || t.equals("off")) return null;
+        try {
+            return Integer.parseInt(t);
+        } catch (NumberFormatException e) {
+            throw new RuntimeException("Переменная окружения " + name + " должна быть ID inbound'а, а не \"" + v + "\"");
+        }
     }
 
     private static String normalizeSlash(String url) {
