@@ -98,11 +98,13 @@ public class PanelServiceImpl implements PanelService {
 
         JsonNode existing = api.getClient(email);
         String subId;
+        boolean realityAdded;
 
         if (isMissing(existing)) {
             UUID uuid = UUID.randomUUID();
             subId = UUID.randomUUID().toString();
             api.addClient(targetIds, uuid, subId, email, tgId);
+            realityAdded = targetIds.contains(realityInbound);
         } else {
             subId = existing.path("client").path("subId").asText("");
             Set<Integer> current = new HashSet<>();
@@ -118,11 +120,38 @@ public class PanelServiceImpl implements PanelService {
             if (!missing.isEmpty()) {
                 api.attachClient(email, missing);
             }
+            realityAdded = missing.contains(realityInbound);
             System.out.println("[Panel:" + label + "] клиент " + email + " уже на панели, subId=" + subId
                     + ", привязано доп. inbounds=" + missing);
         }
 
-        return currentLinks(email, subId);
+        String[] links = currentLinks(email, subId);
+        if (realityAdded && links[3] != null && !hasVisionFlow(links[3])) {
+            links = enableVision(email, subId, links);
+        }
+        return links;
+    }
+
+    private static boolean hasVisionFlow(String link) {
+        return link.contains("flow=" + ApiRequestsImpl.VISION_FLOW);
+    }
+
+    /**
+     * attach берёт flow с уже привязанных inbound'ов клиента, поэтому Reality, добавленный клиенту без Vision
+     * (например, у него был только WS), остаётся без flow. Включаем Vision только вместе с новым Reality:
+     * Reality, который у клиента уже был без flow, не трогаем — Xray отклоняет ссылку без flow, если на сервере
+     * Vision, и у пользователя перестанет работать уже импортированная ссылка. bulkAdjust ставит Vision на все
+     * подходящие inbound'ы клиента; у бот-клиентов остальные подходящие (с VLESS Encryption) уже с Vision с создания.
+     */
+    private String[] enableVision(String email, String subId, String[] links) throws InterruptedException {
+        try {
+            System.out.println("[Panel:" + label + "] Vision для " + email + ": " + api.setVisionFlow(email));
+            return currentLinks(email, subId);
+        } catch (IOException | RuntimeException e) {
+            // Конфиг уже выдан на панели — без Vision он хуже, но лучше, чем ничего
+            System.out.println("[Panel:" + label + "] НЕ удалось включить Vision для " + email + ": " + e.getMessage());
+            return links;
+        }
     }
 
     @Override
