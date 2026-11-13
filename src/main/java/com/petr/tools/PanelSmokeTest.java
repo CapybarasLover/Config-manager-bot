@@ -101,6 +101,8 @@ public class PanelSmokeTest {
             check(tag, "WS-ссылка " + (hasWs ? "есть" : "отсутствует"), (r2[0] != null) == hasWs);
             check(tag, "xHTTP-ссылка " + (hasXhttp ? "есть" : "отсутствует"), (r2[2] != null) == hasXhttp);
             check(tag, "Reality-ссылка есть", cfg.realityInbound == null || r2[3] != null);
+            check(tag, "Reality с XTLS Vision", cfg.realityInbound == null
+                    || (r2[3] != null && r2[3].contains("flow=" + ApiRequestsImpl.VISION_FLOW)));
             check(tag, "подписка не поменялась", r1[1] != null && r1[1].equals(r2[1]));
 
             JsonNode client = api.getClient(EMAIL);

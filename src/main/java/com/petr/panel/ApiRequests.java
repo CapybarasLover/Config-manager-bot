@@ -22,6 +22,13 @@ public interface ApiRequests {
     String attachClient(String email, List<Integer> inboundIds)
             throws IOException, InterruptedException;
 
+    /**
+     * POST /panel/api/clients/bulkAdjust с одним flow — ставит XTLS Vision клиенту на всех его inbound'ах,
+     * где панель это поддерживает (TCP + Reality/TLS, любой транспорт с VLESS Encryption). Срок, трафик и
+     * прочие поля не трогает.
+     */
+    String setVisionFlow(String email) throws IOException, InterruptedException;
+
     /** POST /panel/api/clients/del/{email} — удалить клиента из всех inbound'ов сразу. */
     String deleteClient(String email) throws IOException, InterruptedException;
 

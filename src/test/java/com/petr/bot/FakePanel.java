@@ -24,6 +24,9 @@ import java.util.concurrent.Executors;
  * Эмулятор client-centric API 3x-ui. Форма ответов снята с боевых панелей v3.8.5:
  * email регистрозависим, «нет клиента» — это 200 + success=false, повторный subId при
  * создании отклоняется, а attach дубли subId (старые пары _config/_xhttp) пропускает.
+ * flow хранится по inbound'ам, как в v3.8.5–v3.11: при add/attach он снимается там, где Vision
+ * невозможен (только TCP + Reality/TLS или VLESS Encryption), attach берёт flow с уже привязанных
+ * inbound'ов, а bulkAdjust ставит его на все подходящие inbound'ы клиента.
  */
 final class FakePanel {
 
@@ -33,6 +36,8 @@ final class FakePanel {
         final String subId;
         long tgId;
         final TreeSet<Integer> inbounds = new TreeSet<>();
+        /** flow на каждом inbound'е; нет записи — пустой flow (старые клиенты). */
+        final Map<Integer, String> flows = new ConcurrentHashMap<>();
 
         Client(String email, String uuid, String subId, long tgId, Integer... inbounds) {
             this.email = email;
@@ -43,8 +48,13 @@ final class FakePanel {
         }
     }
 
-    private record Inbound(int port, String network, String security) {
+    private record Inbound(int port, String network, String security, boolean vlessEncryption) {
+        boolean visionEligible() {
+            return vlessEncryption || (network.equals("tcp") && (security.equals("reality") || security.equals("tls")));
+        }
     }
+
+    static final String VISION = "xtls-rprx-vision";
 
     private final ObjectMapper mapper = new ObjectMapper();
     private final String token;
@@ -75,7 +85,12 @@ final class FakePanel {
     }
 
     FakePanel inbound(int id, int port, String network, String security) {
-        inbounds.put(id, new Inbound(port, network, security));
+        return inbound(id, port, network, security, false);
+    }
+
+    /** vlessEncryption — VLESS Encryption (mlkem768x25519plus): Vision доступен на любом транспорте. */
+    FakePanel inbound(int id, int port, String network, String security, boolean vlessEncryption) {
+        inbounds.put(id, new Inbound(port, network, security, vlessEncryption));
         return this;
     }
 
@@ -100,11 +115,32 @@ final class FakePanel {
         return c == null ? new TreeSet<>() : c.inbounds;
     }
 
+    String flowOf(String email, int inboundId) {
+        Client c = clients.get(email);
+        return c == null ? "" : c.flows.getOrDefault(inboundId, "");
+    }
+
+    /** Как EffectiveFlow панели: первый непустой flow по возрастанию ID inbound'а. */
+    private static String effectiveFlow(Client c) {
+        for (int id : c.inbounds) {
+            String f = c.flows.getOrDefault(id, "");
+            if (!f.isEmpty()) return f;
+        }
+        return "";
+    }
+
+    private void bindFlow(Client c, int inboundId, String flow) {
+        c.flows.put(inboundId, inbounds.get(inboundId).visionEligible() ? flow : "");
+    }
+
     String link(Client c, int inboundId) {
         Inbound in = inbounds.get(inboundId);
         String extra = in.security.equals("reality") ? "&pbk=PBK&fp=chrome&sni=www.sap.com&sid=ab12&spx=%2F" : "";
+        String flow = c.flows.getOrDefault(inboundId, "");
+        if (!flow.isEmpty()) extra += "&flow=" + flow;
+        String encryption = in.vlessEncryption ? "mlkem768x25519plus.native.0rtt.TEST" : "none";
         return "vless://" + c.uuid + "@" + host + ":" + in.port + "?type=" + in.network
-                + "&encryption=none&security=" + in.security + extra + "#inb" + inboundId + "-" + c.email;
+                + "&encryption=" + encryption + "&security=" + in.security + extra + "#inb" + inboundId + "-" + c.email;
     }
 
     private void handle(HttpExchange ex) throws IOException {
@@ -166,6 +202,8 @@ final class FakePanel {
             add(ex, body);
         } else if (method.equals("POST") && path.endsWith("/attach")) {
             attach(ex, path, body);
+        } else if (method.equals("POST") && path.equals("/panel/api/clients/bulkAdjust")) {
+            bulkAdjust(ex, body);
         } else if (method.equals("POST") && path.startsWith("/panel/api/clients/del/")) {
             String email = path.substring("/panel/api/clients/del/".length());
             if (clients.remove(email) == null) {
@@ -209,6 +247,7 @@ final class FakePanel {
                 return;
             }
             c.inbounds.add(id.asInt());
+            bindFlow(c, id.asInt(), client.path("flow").asText(""));
         }
         clients.put(email, c);
         writes.add("add " + email + " " + c.inbounds);
@@ -229,15 +268,50 @@ final class FakePanel {
             notFound(ex);
             return;
         }
+        String flow = effectiveFlow(c);
         for (JsonNode id : mapper.readTree(body).path("inboundIds")) {
             if (!inbounds.containsKey(id.asInt())) {
                 fail(ex, "inbound not found: " + id.asInt());
                 return;
             }
-            c.inbounds.add(id.asInt());
+            if (c.inbounds.add(id.asInt())) {
+                bindFlow(c, id.asInt(), flow);
+            }
         }
         writes.add("attach " + email + " " + c.inbounds);
         ok(ex, null);
+    }
+
+    /** Только flow (addDays/addBytes = 0): "none" снимает, Vision ставится на подходящие inbound'ы. */
+    private synchronized void bulkAdjust(HttpExchange ex, String body) throws IOException {
+        JsonNode root = mapper.readTree(body);
+        String flow = root.path("flow").asText("");
+        int adjusted = 0;
+        ArrayNode skipped = mapper.createArrayNode();
+        for (JsonNode e : root.path("emails")) {
+            Client c = clients.get(e.asText());
+            if (c == null) {
+                skipped.add(mapper.createObjectNode().put("email", e.asText()).put("reason", "client not found"));
+                continue;
+            }
+            boolean honored = false;
+            for (int id : c.inbounds) {
+                if (flow.equals("none")) {
+                    c.flows.put(id, "");
+                    honored = true;
+                } else if (flow.startsWith(VISION) && inbounds.get(id).visionEligible()) {
+                    c.flows.put(id, flow);
+                    honored = true;
+                }
+            }
+            if (honored) adjusted++;
+            else skipped.add(mapper.createObjectNode().put("email", c.email).put("reason", "flow not supported on inbound"));
+            writes.add("bulkAdjust " + c.email + " flow=" + flow);
+        }
+        ObjectNode obj = mapper.createObjectNode();
+        obj.put("adjusted", adjusted);
+        if (!skipped.isEmpty()) obj.set("skipped", skipped);
+        ok(ex, obj);
     }
 
     private ObjectNode record(Client c) {
@@ -246,7 +320,7 @@ final class FakePanel {
         rec.put("email", c.email);
         rec.put("subId", c.subId);
         rec.put("tgId", c.tgId);
-        rec.put("flow", "");
+        rec.put("flow", effectiveFlow(c));
         rec.put("enable", true);
         rec.set("inboundIds", ids(c));
         return rec;

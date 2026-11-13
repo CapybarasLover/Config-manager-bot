@@ -80,9 +80,10 @@ public final class ScenarioRunner {
         germ = new FakePanel(18082, "germ-token", "germ.test")
                 .inbound(2, 54228, "xhttp", "reality").inbound(3, 1235, "ws", "none")
                 .inbound(4, 50136, "xhttp", "tls").inbound(5, 443, "tcp", "reality");
+        // Как на настоящей Варшаве: VLESS Encryption на всех трёх, поэтому Vision доступен везде
         pol = new FakePanel(18084, "pol-token", "pol.test")
-                .inbound(1, 2087, "ws", "none").inbound(2, 8443, "xhttp", "reality")
-                .inbound(3, 443, "tcp", "reality");
+                .inbound(1, 2087, "ws", "none", true).inbound(2, 8443, "xhttp", "reality", true)
+                .inbound(3, 443, "tcp", "reality", true);
 
         DatabaseMigration.startMigration(System.getProperty("app.env"));
         db = DriverManager.getConnection(System.getenv("DB_LINK_PROD"), System.getenv("DB_USER"), System.getenv("DB_PASSWORD"));
@@ -145,6 +146,7 @@ public final class ScenarioRunner {
         scenario("Германия: новые конфиги WS / xHTTP / Оба", ScenarioRunner::germanyTypes);
         scenario("Польша: кнопка, отмена, конфиги WS / xHTTP / Оба", ScenarioRunner::polandFlow);
         scenario("Польша: своё одобрение, новые типы без заявки", ScenarioRunner::polandSeparateApproval);
+        scenario("XTLS Vision: новый Reality с flow, старый без flow не трогаем", ScenarioRunner::visionFlow);
 
         scenario("Оба: клавиатура осталась от прошлого запроса (случай с прода)", ScenarioRunner::bothOnStaleKeyboard);
         scenario("Двойное нажатие на каждом шаге", ScenarioRunner::doubleTapEveryStep);
@@ -242,6 +244,8 @@ public final class ScenarioRunner {
         u.press("🇱🇻 Латвия");
 
         check("клиент на панели в WS+Reality", latv.inboundsOf("petr_config").equals(ids(1, 8)));
+        check("Reality с XTLS Vision", FakePanel.VISION.equals(latv.flowOf("petr_config", 8)));
+        check("на WS flow нет", latv.flowOf("petr_config", 1).isEmpty());
         check("на панели записан tgId", latv.clients.get("petr_config").tgId == u.id);
         check("пользователю — «ожидает»", u.last().text.contains("ожидает"));
         check("ссылок до одобрения нет", !u.last().text.contains("vless://"));
@@ -263,6 +267,7 @@ public final class ScenarioRunner {
         Msg links = lastWith(u.id, "vless://");
         check("пользователь получил ссылки", links != null);
         if (links != null) expectLinks(links, true, false, true);
+        check("в ссылке Reality есть flow", links != null && links.text.contains("flow=" + FakePanel.VISION));
         check("у нажавшего админа кнопки убраны", a.buttons.isEmpty());
         check("нажавшему видно «одобрен»", a.text.contains("одобрен"));
         check("второму админу видно «одобрен»", b.text.contains("одобрен"));
@@ -311,6 +316,8 @@ public final class ScenarioRunner {
         U u = registered(name);
         requestGerm(u, button);
         check(button + ": inbound'ы", germ.inboundsOf(name + "_config").equals(inbounds));
+        check(button + ": Vision только на Reality", germ.flowOf(name + "_config", 5).equals(reality ? FakePanel.VISION : "")
+                && germ.flowOf(name + "_config", 2).isEmpty() && germ.flowOf(name + "_config", 3).isEmpty());
         Msg n = notification(ADMIN_A, u.id);
         check(button + ": заявка у админа", n != null);
         if (n != null) adminPress(ADMIN_A, n, "Одобрить");
@@ -342,6 +349,8 @@ public final class ScenarioRunner {
         U u = registered(name);
         requestPol(u, button);
         check(button + ": inbound'ы в Польше", pol.inboundsOf(name + "_config").equals(inbounds));
+        check(button + ": Vision на всех (VLESS Encryption)", inbounds.stream()
+                .allMatch(id -> FakePanel.VISION.equals(pol.flowOf(name + "_config", id))));
         FakePanel.Client c = pol.clients.get(name + "_config");
         check(button + ": на панели записан tgId", c != null && c.tgId == u.id);
         check(button + ": пользователю — «ожидает»", u.last().text.contains("ожидает"));
@@ -379,6 +388,38 @@ public final class ScenarioRunner {
         check("клиент Польши во всех inbound'ах", pol.inboundsOf("plus_config").equals(ids(1, 2, 3)));
         FakePanel.Client c = pol.clients.get("plus_config");
         check("подписка не поменялась", c != null && u.last().text.contains(POL_SUB + c.subId));
+    }
+
+    /**
+     * Без XTLS Vision Reality по TCP быстро детектится. Но Xray отклоняет ссылку без flow, если на сервере
+     * у клиента Vision, поэтому Reality, который у пользователя уже был без flow, бот не трогает.
+     */
+    private static void visionFlow() throws Exception {
+        // Бот-клиент только с WS: на WS Vision не ставится, Reality появляется позже
+        U u = registered("vis");
+        requestGerm(u, "WebSocket");
+        adminPress(ADMIN_A, notification(ADMIN_A, u.id), "Одобрить");
+        check("на WS flow нет", germ.flowOf("vis_config", 3).isEmpty());
+        requestGerm(u, "Reality");
+        check("новый Reality с Vision", FakePanel.VISION.equals(germ.flowOf("vis_config", 5)));
+        check("WS остался без flow", germ.flowOf("vis_config", 3).isEmpty());
+        check("в ответе ссылка Reality с Vision", u.last().text.contains("flow=" + FakePanel.VISION));
+
+        // Новый клиент сразу с Reality: Vision ставится при создании, без отдельного запроса
+        U fresh = registered("visnew");
+        requestGerm(fresh, "Все");
+        check("Vision с создания", FakePanel.VISION.equals(germ.flowOf("visnew_config", 5)));
+        check("без отдельного bulkAdjust", germ.writes.stream().noneMatch(w -> w.startsWith("bulkAdjust visnew_config")));
+
+        // Старый клиент: Reality уже был без flow — не трогаем, иначе импортированная ссылка перестанет работать
+        U old = registered("oldvis");
+        sqlExec("UPDATE tg_user SET wait_accept='a', has_config=true WHERE id=?", old.id);
+        germ.put("oldvis_config", "uuid-o", "o-sub", old.id, 3, 5);
+        dbConfig(old.id, "oldvis_config", "germ", "w", GERM_SUB + "o-sub", null, "r", "a");
+        requestGerm(old, "Все");
+        check("xHTTP добавлен", germ.inboundsOf("oldvis_config").equals(ids(2, 3, 5)));
+        check("старый Reality без flow не тронут", germ.flowOf("oldvis_config", 5).isEmpty());
+        check("bulkAdjust не вызывался", germ.writes.stream().noneMatch(w -> w.startsWith("bulkAdjust oldvis_config")));
     }
 
     /**
@@ -470,6 +511,7 @@ public final class ScenarioRunner {
         u.say("/get_config");
         u.press("🇱🇻 Латвия");
         check("привязан Reality", latv.inboundsOf("x_config").equals(ids(1, 8)));
+        check("новый Reality с Vision", FakePanel.VISION.equals(latv.flowOf("x_config", 8)));
         expectLinks(u.last(), true, false, true);
     }
 

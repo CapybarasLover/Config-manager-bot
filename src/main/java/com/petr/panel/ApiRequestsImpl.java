@@ -28,6 +28,8 @@ import java.util.UUID;
  */
 public class ApiRequestsImpl implements ApiRequests {
 
+    public static final String VISION_FLOW = "xtls-rprx-vision";
+
     private static final int MAX_RETRIES = 2;
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(20);
@@ -134,6 +136,33 @@ public class ApiRequestsImpl implements ApiRequests {
             }
             throw new RequestException("attachClient success=false: " +
                     json.path("msg").asText("неизвестная ошибка панели"), 200);
+        });
+    }
+
+    @Override
+    public String setVisionFlow(String email) throws IOException, InterruptedException {
+        return executeWithRetry(() -> {
+            URI url = baseUri.resolve("panel/api/clients/bulkAdjust");
+            ObjectNode root = mapper.createObjectNode();
+            root.set("emails", mapper.createArrayNode().add(email));
+            root.put("addDays", 0);
+            root.put("addBytes", 0);
+            root.put("flow", VISION_FLOW);
+
+            HttpResponse<String> response = client.send(jsonPost(url, root.toString()), HttpResponse.BodyHandlers.ofString());
+            System.out.println(tag + " setVisionFlow email=" + email +
+                    " status=" + response.statusCode() + " body=" + response.body());
+
+            if (response.statusCode() != 200) {
+                throw new RequestException("setVisionFlow HTTP " + response.statusCode(), response.statusCode());
+            }
+            JsonNode json = mapper.readTree(response.body());
+            if (!json.path("success").asBoolean(false)) {
+                throw new RequestException("setVisionFlow success=false: " +
+                        json.path("msg").asText("неизвестная ошибка панели"), 200);
+            }
+            // skipped "flow not supported on inbound" — у inbound'а нет поддержки Vision, это не ошибка
+            return json.path("obj").toString();
         });
     }
 
@@ -278,7 +307,9 @@ public class ApiRequestsImpl implements ApiRequests {
     private String buildCreatePayload(List<Integer> inboundIds, UUID uuid, String subId, String email, long tgId) {
         ObjectNode clientNode = mapper.createObjectNode();
         clientNode.put("id", uuid.toString());
-        clientNode.put("flow", "");
+        // Панель сама снимает flow там, где Vision невозможен (WS/xHTTP без VLESS Encryption):
+        // без Vision Reality по TCP быстро детектится
+        clientNode.put("flow", VISION_FLOW);
         clientNode.put("email", email);
         clientNode.put("limitIp", 0);
         clientNode.put("totalGB", 0);
