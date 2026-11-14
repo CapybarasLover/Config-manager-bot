@@ -296,7 +296,11 @@ public class PanelServiceImpl implements PanelService {
      * Сначала сопоставляем по порту inbound'а (однозначно, если порты различны),
      * иначе — по типу транспорта: {@code type=xhttp}/{@code type=splithttp} → XHTTP,
      * {@code type=ws} → WS, прочее → Reality (если он настроен), иначе WS. Точное совпадение
-     * по порту важнее типа: ссылка лишнего inbound'а не должна занять чужое место.
+     * по порту важнее типа: ссылка лишнего inbound'а не должна занять чужое место. Совпадение по порту
+     * засчитываем, только если транспорт ссылки подходит слоту: XHTTP-inbound, подключённый fallback'ом
+     * к Reality (Финляндия), слушает 127.0.0.1:20001, а в ссылке у него порт 443 главного inbound'а.
+     * Ссылку протокола, который в боте выключен (например, WS с GERM_WS_INBOUND=0), не показываем:
+     * клиент к нему ещё привязан, но inbound выключен на панели.
      */
     private String[] classifyLinks(List<String> rawLinks, Map<Integer, Integer> ports) {
         Integer wsPort = wsInbound == null ? null : ports.get(wsInbound);
@@ -307,6 +311,9 @@ public class PanelServiceImpl implements PanelService {
         List<String> withoutPortMatch = new ArrayList<>();
         for (String link : rawLinks) {
             int slot = slotByPort(linkPort(link), wsPort, xhttpPort, realityPort);
+            if (slot >= 0 && !transportFits(link, slot)) {
+                slot = -1; // порт чужой: решаем по типу
+            }
             if (slot < 0) {
                 withoutPortMatch.add(link);
             } else if (result[slot] == null) {
@@ -315,7 +322,7 @@ public class PanelServiceImpl implements PanelService {
         }
         for (String link : withoutPortMatch) {
             int slot = slotByType(link);
-            if (result[slot] == null) {
+            if (slot >= 0 && result[slot] == null) {
                 result[slot] = link;
             }
         }
@@ -332,10 +339,24 @@ public class PanelServiceImpl implements PanelService {
         return matches == 1 ? slot : -1; // одинаковые порты у inbound'ов — решаем по типу
     }
 
+    /** XHTTP-ссылка подходит только слоту XHTTP, WS-ссылка не подходит слоту Reality. */
+    private static boolean transportFits(String link, int slot) {
+        boolean xhttp = isXhttp(link);
+        if (slot == 1) return xhttp;
+        if (slot == 2) return !xhttp && !link.contains("type=ws");
+        return !xhttp;
+    }
+
+    private static boolean isXhttp(String link) {
+        return link.contains("type=xhttp") || link.contains("type=splithttp");
+    }
+
+    /** Слот по типу транспорта; -1 — протокол в боте выключен, ссылку не показываем. */
     private int slotByType(String link) {
-        if (link.contains("type=xhttp") || link.contains("type=splithttp")) return 1;
-        if (link.contains("type=ws")) return 0;
-        return realityInbound != null ? 2 : 0;
+        if (isXhttp(link)) return xhttpInbound != null ? 1 : -1;
+        if (link.contains("type=ws")) return wsInbound != null ? 0 : -1;
+        if (realityInbound != null) return 2;
+        return wsInbound != null ? 0 : -1;
     }
 
     /** Порт из ссылки: vmess — base64-JSON, остальные — host:port после '@'. */

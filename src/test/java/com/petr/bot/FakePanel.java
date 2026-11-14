@@ -60,6 +60,8 @@ final class FakePanel {
     private final String token;
     private final String host;
     private final Map<Integer, Inbound> inbounds = new TreeMap<>();
+    /** Дочерний inbound fallback'а (слушает 127.0.0.1) → главный, через который его видят клиенты. */
+    private final Map<Integer, Integer> fallbackMaster = new TreeMap<>();
     final Map<String, Client> clients = new ConcurrentHashMap<>();
     final List<String> writes = Collections.synchronizedList(new ArrayList<>());
     private final HttpServer server;
@@ -91,6 +93,16 @@ final class FakePanel {
     /** vlessEncryption — VLESS Encryption (mlkem768x25519plus): Vision доступен на любом транспорте. */
     FakePanel inbound(int id, int port, String network, String security, boolean vlessEncryption) {
         inbounds.put(id, new Inbound(port, network, security, vlessEncryption));
+        return this;
+    }
+
+    /**
+     * Inbound {@code childId} — fallback inbound'а {@code masterId}, как в 3x-ui 3.11: сам он слушает
+     * localhost без TLS, а в ссылке панель подставляет порт и Reality главного. inbounds/get при этом
+     * отдаёт собственный порт дочернего.
+     */
+    FakePanel fallback(int childId, int masterId) {
+        fallbackMaster.put(childId, masterId);
         return this;
     }
 
@@ -135,12 +147,14 @@ final class FakePanel {
 
     String link(Client c, int inboundId) {
         Inbound in = inbounds.get(inboundId);
-        String extra = in.security.equals("reality") ? "&pbk=PBK&fp=chrome&sni=www.sap.com&sid=ab12&spx=%2F" : "";
+        Integer masterId = fallbackMaster.get(inboundId);
+        Inbound shown = masterId == null ? in : inbounds.get(masterId); // порт и TLS — главного
+        String extra = shown.security.equals("reality") ? "&pbk=PBK&fp=chrome&sni=www.sap.com&sid=ab12&spx=%2F" : "";
         String flow = c.flows.getOrDefault(inboundId, "");
         if (!flow.isEmpty()) extra += "&flow=" + flow;
         String encryption = in.vlessEncryption ? "mlkem768x25519plus.native.0rtt.TEST" : "none";
-        return "vless://" + c.uuid + "@" + host + ":" + in.port + "?type=" + in.network
-                + "&encryption=" + encryption + "&security=" + in.security + extra + "#inb" + inboundId + "-" + c.email;
+        return "vless://" + c.uuid + "@" + host + ":" + shown.port + "?type=" + in.network
+                + "&encryption=" + encryption + "&security=" + shown.security + extra + "#inb" + inboundId + "-" + c.email;
     }
 
     private void handle(HttpExchange ex) throws IOException {

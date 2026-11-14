@@ -15,7 +15,7 @@ import com.petr.panel.service.PanelServiceImpl;
  * Запуск (нужны те же env, что и боту, и -Dapp.env для выбора Latv inbound'а):
  *   java -Dapp.env=prod -cp target/Config_bot-2.0-SNAPSHOT.jar com.petr.tools.MergeInbounds
  *
- * Необязательный аргумент выбора панели: latv | germ | pol | both (по умолчанию both — все настроенные).
+ * Необязательный аргумент выбора панели: latv | germ | pol | fin | both (по умолчанию both — все настроенные).
  */
 public class MergeInbounds {
 

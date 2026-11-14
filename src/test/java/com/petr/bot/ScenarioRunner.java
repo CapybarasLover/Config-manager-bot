@@ -30,12 +30,14 @@ public final class ScenarioRunner {
     private static final String GERM_SUB = "https://germ.test:2096/sub/";
     private static final String LATV_SUB = "https://latv.test:2096/sub/";
     private static final String POL_SUB = "https://pol.test:2096/sub/";
+    private static final String FIN_SUB = "https://fin.test:2096/sub/";
 
     private static PrintStream report;
     private static FakeTelegram tg;
     private static FakePanel latv;
     private static FakePanel germ;
     private static FakePanel pol;
+    private static FakePanel fin;
     private static BotClient client;
     private static Connection db;
 
@@ -84,6 +86,10 @@ public final class ScenarioRunner {
         pol = new FakePanel(18084, "pol-token", "pol.test")
                 .inbound(1, 2087, "ws", "none", true).inbound(2, 8443, "xhttp", "reality", true)
                 .inbound(3, 443, "tcp", "reality", true);
+        // Финляндия как на сервере: без WS, Reality+Vision на 443 (id 1) и XHTTP (id 2) на 127.0.0.1:20001
+        // fallback'ом главного — ссылка XHTTP тоже на 443, inbounds/get/2 отдаёт 20001
+        fin = new FakePanel(18085, "fin-token", "fin.test")
+                .inbound(1, 443, "tcp", "reality").inbound(2, 20001, "xhttp", "none").fallback(2, 1);
 
         DatabaseMigration.startMigration(System.getProperty("app.env"));
         db = DriverManager.getConnection(System.getenv("DB_LINK_PROD"), System.getenv("DB_USER"), System.getenv("DB_PASSWORD"));
@@ -100,7 +106,7 @@ public final class ScenarioRunner {
     }
 
     private static void guardAgainstRealServices() {
-        for (String name : List.of("LATV_PANEL_HOME_URL", "GERMAN_PANEL_HOME_URL", "POL_PANEL_HOME_URL", "DB_LINK_PROD")) {
+        for (String name : List.of("LATV_PANEL_HOME_URL", "GERMAN_PANEL_HOME_URL", "POL_PANEL_HOME_URL", "FIN_PANEL_HOME_URL", "DB_LINK_PROD")) {
             String v = System.getenv(name);
             if (v == null || !v.contains("127.0.0.1")) {
                 throw new IllegalStateException(name + " должен указывать на 127.0.0.1 — запускайте через scripts/run-scenarios.sh");
@@ -146,6 +152,7 @@ public final class ScenarioRunner {
         scenario("Германия: новые конфиги WS / xHTTP / Оба", ScenarioRunner::germanyTypes);
         scenario("Польша: кнопка, отмена, конфиги WS / xHTTP / Оба", ScenarioRunner::polandFlow);
         scenario("Польша: своё одобрение, новые типы без заявки", ScenarioRunner::polandSeparateApproval);
+        scenario("Финляндия: без WS — выбор xHTTP / Reality / Все, Vision", ScenarioRunner::finlandFlow);
         scenario("XTLS Vision: новый Reality с flow, старый без flow не трогаем", ScenarioRunner::visionFlow);
 
         scenario("Оба: клавиатура осталась от прошлого запроса (случай с прода)", ScenarioRunner::bothOnStaleKeyboard);
@@ -360,6 +367,48 @@ public final class ScenarioRunner {
         Msg links = lastWith(u.id, "pol.test");
         check(button + ": ссылки Польши после одобрения", links != null && links.text.contains("Польша"));
         if (links != null) expectLinks(links, ws, xhttp, reality);
+    }
+
+    /** Финляндия: XHTTP + Reality без WS. Выбор xHTTP / Reality / «Все», без кнопки WebSocket. */
+    private static void finlandFlow() throws Exception {
+        U u = registered("suomi");
+        u.say("/get_config");
+        check("кнопка Финляндии", u.last().buttons.containsKey("🇫🇮 Финляндия"));
+        u.press("🇫🇮 Финляндия");
+        check("без предупреждения о торрентах", !u.last().text.contains("торрент"));
+        check("есть xHTTP, Reality и «Все»", u.last().buttons.keySet().containsAll(List.of("xHTTP", "Reality", "Все")));
+        check("кнопки WebSocket нет (WS выключен)", !u.last().buttons.containsKey("WebSocket"));
+        u.press("Отмена");
+        check("панель Финляндии не тронута", fin.clients.isEmpty());
+
+        finType("fxh", "xHTTP", ids(2), false, true, false);
+        finType("fre", "Reality", ids(1), false, false, true);
+        finType("fboth", "Все", ids(1, 2), false, true, true);
+        check("другие страны не тронуты", latv.clients.isEmpty() && germ.clients.isEmpty() && pol.clients.isEmpty());
+    }
+
+    private static void finType(String name, String button, Set<Integer> inbounds, boolean ws, boolean xhttp, boolean reality) throws Exception {
+        U u = registered(name);
+        u.say("/get_config");
+        u.press("🇫🇮 Финляндия");
+        u.press(button);
+        check(button + ": inbound'ы в Финляндии", fin.inboundsOf(name + "_config").equals(inbounds));
+        check(button + ": Vision на Reality, на XHTTP flow пустой", inbounds.stream()
+                .allMatch(id -> (id == 1 ? FakePanel.VISION : "").equals(fin.flowOf(name + "_config", id))));
+        FakePanel.Client c = fin.clients.get(name + "_config");
+        check(button + ": на панели записан tgId", c != null && c.tgId == u.id);
+        Msg n = notification(ADMIN_A, u.id);
+        check(button + ": заявка у админа про Финляндию", n != null && n.text.contains("Финляндия"));
+        if (n != null) adminPress(ADMIN_A, n, "Одобрить");
+        Msg links = lastWith(u.id, "fin.test");
+        check(button + ": ссылки Финляндии после одобрения", links != null && links.text.contains("Финляндия"));
+        if (links != null) expectLinks(links, ws, xhttp, reality);
+        check(button + ": WS-ссылки нет", links != null && !links.text.contains("WebSocket конфиг"));
+        // XHTTP через fallback делит с Reality порт 443: ссылка не должна уйти в слот Reality
+        check(button + ": XHTTP-ссылка " + (xhttp ? "есть" : "не попала в Reality"),
+                links != null && links.text.contains("type=xhttp") == xhttp);
+        check(button + ": Reality-ссылка " + (reality ? "есть" : "нет"),
+                links != null && links.text.contains("type=tcp") == reality);
     }
 
     private static void polandSeparateApproval() throws Exception {
@@ -1400,6 +1449,7 @@ public final class ScenarioRunner {
         latv.reset();
         germ.reset();
         pol.reset();
+        fin.reset();
         expectedApiErrors.clear();
         crashes.clear();
         sqlExec("TRUNCATE config, tg_user");

@@ -23,8 +23,8 @@ import java.util.List;
  * подписке и раскладку ссылок, затем удаляет клиента. Реальных клиентов не трогает.
  *
  * Запуск (те же env, что и боту):
- *   java -Dapp.env=prod -cp target/Config_bot-2.0-SNAPSHOT.jar com.petr.tools.PanelSmokeTest [latv|germ|pol|both]
- * Список inbound'ов панели (ничего не меняет): ... PanelSmokeTest inbounds [latv|germ|pol]
+ *   java -Dapp.env=prod -cp target/Config_bot-2.0-SNAPSHOT.jar com.petr.tools.PanelSmokeTest [latv|germ|pol|fin|both]
+ * Список inbound'ов панели (ничего не меняет): ... PanelSmokeTest inbounds [latv|germ|pol|fin]
  */
 public class PanelSmokeTest {
 

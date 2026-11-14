@@ -343,6 +343,12 @@ public class Bot {
             chooseTypeOrRequest(bot, query, "pol");
         }
 
+        @CallbackHandler(data = "country:fin")
+        void onCallbackCountryFin(BotContext bot, CallbackQuery query) {
+            answer(bot, query, null);
+            chooseTypeOrRequest(bot, query, "fin");
+        }
+
         @CallbackHandler(data = "country:germ")
         void onCallbackCountryGerm(BotContext bot, CallbackQuery query) {
             answer(bot, query, null);
@@ -799,6 +805,7 @@ public class Bot {
         private static String countryTitle(String country) {
             if ("germ".equals(country)) return "🇩🇪 Германия";
             if ("pol".equals(country)) return "🇵🇱 Польша";
+            if ("fin".equals(country)) return "🇫🇮 Финляндия";
             return "🇱🇻 Латвия";
         }
 

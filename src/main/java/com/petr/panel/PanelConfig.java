@@ -3,6 +3,7 @@ package com.petr.panel;
 import com.petr.configmanager.ConfigType;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -12,9 +13,31 @@ import java.util.List;
 public class PanelConfig {
 
     /** Коды стран в порядке кнопок; совпадают со значениями {@code config.country} в БД. */
-    public static final List<String> COUNTRIES = List.of("latv", "germ", "pol");
+    public static final List<String> COUNTRIES = List.of("latv", "germ", "pol", "fin");
 
-    public final String label;          // метка для логов ("Latv" / "Germ" / "Pol")
+    /**
+     * Включённые страны: ENABLED_COUNTRIES через запятую (например "latv,germ,fin"), пусто — все из
+     * {@link #COUNTRIES}. Выключенная страна пропадает из бота целиком (кнопки, статус, синк), её env не нужны,
+     * панель не опрашивается; записи в БД остаются, и страну можно вернуть.
+     */
+    public static List<String> enabledCountries() {
+        String v = env("ENABLED_COUNTRIES");
+        if (v == null || v.isBlank()) {
+            return COUNTRIES;
+        }
+        List<String> wanted = Arrays.stream(v.split(","))
+                .map(s -> s.trim().toLowerCase())
+                .filter(s -> !s.isEmpty())
+                .toList();
+        for (String c : wanted) {
+            if (!COUNTRIES.contains(c)) {
+                throw new RuntimeException("ENABLED_COUNTRIES: неизвестная страна \"" + c + "\", есть " + COUNTRIES);
+            }
+        }
+        return COUNTRIES.stream().filter(wanted::contains).toList();
+    }
+
+    public final String label;          // метка для логов ("Latv" / "Germ" / "Pol" / "Fin")
     public final String baseUrl;        // оканчивается на "/"
     public final String apiToken;       // API-токен панели (Authorization: Bearer)
     public final Integer wsInbound;     // ID WS inbound'а; null → WS не используется
@@ -34,11 +57,12 @@ public class PanelConfig {
     }
 
     /**
-     * В стране есть и WS, и xHTTP — пользователь выбирает тип конфига. На Риге (WS + Reality) выбора нет:
-     * пользователь сразу получает оба протокола.
+     * Показываем выбор типа, когда есть XHTTP и ещё хотя бы один протокол: xHTTP и WS/Reality — заметно
+     * разные транспорты, между ними есть смысл выбирать (Германия, Варшава, Финляндия). Панель без XHTTP
+     * (Рига WS+Reality, reality-only) выбор не предлагает и сразу отдаёт все свои протоколы.
      */
     public boolean offersTypeChoice() {
-        return wsInbound != null && xhttpInbound != null;
+        return xhttpInbound != null && singleTypes().size() >= 2;
     }
 
     /** Кнопки выбора типа: по одной на каждый настроенный протокол (плюс общая «Все»). */
@@ -61,17 +85,19 @@ public class PanelConfig {
             case "latv" -> latv();
             case "germ" -> germ();
             case "pol" -> pol();
+            case "fin" -> fin();
             default -> throw new IllegalArgumentException("Неизвестная страна: " + country);
         };
     }
 
     /**
-     * Латвийская панель (Рига). WS inbound: env (по умолчанию prod=1 riga-ws, dev=3). XHTTP на Риге нет.
-     * Reality inbound: LATV_REALITY_INBOUND_PROD/DEV (по умолчанию prod=8, в dev — выключен).
+     * Латвийская панель (Рига). WS inbound: LATV_WS_INBOUND_PROD/DEV (по умолчанию prod=1 riga-ws, dev=3;
+     * 0 — выключен). XHTTP на Риге нет. Reality inbound: LATV_REALITY_INBOUND_PROD/DEV (по умолчанию prod=8,
+     * в dev — выключен).
      */
     public static PanelConfig latv() {
         boolean dev = "dev".equals(System.getProperty("app.env"));
-        int ws = parseOr(env(dev ? "LATV_WS_INBOUND_DEV" : "LATV_WS_INBOUND_PROD"), dev ? 3 : 1);
+        Integer ws = parseOrDisabled(env(dev ? "LATV_WS_INBOUND_DEV" : "LATV_WS_INBOUND_PROD"), dev ? 3 : 1);
         Integer reality = dev
                 ? parseOrNull(env("LATV_REALITY_INBOUND_DEV"))
                 : parseOrDisabled(env("LATV_REALITY_INBOUND_PROD"), 8);
@@ -89,11 +115,11 @@ public class PanelConfig {
 
     /**
      * Германская панель. WS inbound: 3 (env GERM_WS_INBOUND), XHTTP inbound: 2 (env GERM_XHTTP_INBOUND),
-     * Reality inbound: 5 (env GERM_REALITY_INBOUND).
+     * Reality inbound: 5 (env GERM_REALITY_INBOUND); 0 — inbound выключен.
      */
     public static PanelConfig germ() {
-        int ws = parseOr(env("GERM_WS_INBOUND"), 3);
-        Integer xhttp = parseOr(env("GERM_XHTTP_INBOUND"), 2);
+        Integer ws = parseOrDisabled(env("GERM_WS_INBOUND"), 3);
+        Integer xhttp = parseOrDisabled(env("GERM_XHTTP_INBOUND"), 2);
         Integer reality = parseOrDisabled(env("GERM_REALITY_INBOUND"), 5);
         String sub = nvl(env("GERM_SUB_BASE_URL"), "");
         return new PanelConfig(
@@ -107,41 +133,54 @@ public class PanelConfig {
         );
     }
 
-    /**
-     * Польская панель (Варшава). Необязательная: без POL_PANEL_HOME_URL возвращает null, и кнопки «Польша» нет.
-     * Умолчаний у ID inbound'ов нет: POL_WS_INBOUND, POL_XHTTP_INBOUND, POL_REALITY_INBOUND (пусто или 0 —
-     * inbound не используется), нужен хотя бы один.
-     */
+    /** Польская панель (Варшава), см. {@link #optionalPanel}: префикс POL. */
     public static PanelConfig pol() {
-        String url = env("POL_PANEL_HOME_URL");
+        return optionalPanel("POL", "Pol", "Польши");
+    }
+
+    /** Финская панель, см. {@link #optionalPanel}: префикс FIN. */
+    public static PanelConfig fin() {
+        return optionalPanel("FIN", "Fin", "Финляндии");
+    }
+
+    /**
+     * Необязательная панель: без {P}_PANEL_HOME_URL возвращает null, и кнопки страны нет. Нужны XUI_API_TOKEN_{P}
+     * и {P}_SUB_BASE_URL. Умолчаний у ID inbound'ов нет: {P}_WS_INBOUND, {P}_XHTTP_INBOUND, {P}_REALITY_INBOUND
+     * (пусто или 0 — inbound не используется), нужен хотя бы один.
+     */
+    private static PanelConfig optionalPanel(String prefix, String label, String countryGenitive) {
+        String url = env(prefix + "_PANEL_HOME_URL");
         if (url == null || url.isBlank()) {
             return null;
         }
-        Integer ws = optionalInbound("POL_WS_INBOUND");
-        Integer xhttp = optionalInbound("POL_XHTTP_INBOUND");
-        Integer reality = optionalInbound("POL_REALITY_INBOUND");
+        Integer ws = optionalInbound(prefix + "_WS_INBOUND");
+        Integer xhttp = optionalInbound(prefix + "_XHTTP_INBOUND");
+        Integer reality = optionalInbound(prefix + "_REALITY_INBOUND");
         if (ws == null && xhttp == null && reality == null) {
-            throw new RuntimeException("Для Польши не задан ни один inbound: POL_WS_INBOUND, POL_XHTTP_INBOUND, POL_REALITY_INBOUND");
+            throw new RuntimeException("Для " + countryGenitive + " не задан ни один inbound: " + prefix
+                    + "_WS_INBOUND, " + prefix + "_XHTTP_INBOUND, " + prefix + "_REALITY_INBOUND");
         }
         return new PanelConfig(
-                "Pol",
+                label,
                 url,
-                req("XUI_API_TOKEN_POL"),
+                req("XUI_API_TOKEN_" + prefix),
                 ws,
                 xhttp,
                 reality,
-                req("POL_SUB_BASE_URL")
+                req(prefix + "_SUB_BASE_URL")
         );
     }
 
     // ── Хелперы ───────────────────────────────────────────────────────────────
 
+    /** Переменная окружения; системное свойство env.ИМЯ её перекрывает (сценарные тесты, локальный запуск). */
     private static String env(String name) {
-        return System.getenv(name);
+        String override = System.getProperty("env." + name);
+        return override != null ? override : System.getenv(name);
     }
 
     private static String req(String name) {
-        String v = System.getenv(name);
+        String v = env(name);
         if (v == null || v.isBlank()) {
             throw new RuntimeException("Переменная окружения не задана: " + name);
         }
@@ -159,11 +198,6 @@ public class PanelConfig {
         } catch (NumberFormatException e) {
             return null;
         }
-    }
-
-    private static int parseOr(String v, int def) {
-        Integer parsed = parseOrNull(v);
-        return parsed != null ? parsed : def;
     }
 
     /** Пусто → значение по умолчанию; "0"/"none"/"off" → null (inbound выключен). */
