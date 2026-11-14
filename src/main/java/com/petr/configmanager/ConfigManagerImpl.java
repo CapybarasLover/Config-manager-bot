@@ -19,14 +19,16 @@ import java.util.function.Predicate;
 
 public class ConfigManagerImpl implements ConfigManager {
 
-    /** Только настроенные страны, в порядке кнопок. */
+    /** Только включённые (ENABLED_COUNTRIES) и настроенные страны, в порядке кнопок. */
     private final Map<String, PanelConfig> panelConfigs = new LinkedHashMap<>();
     private final Map<String, PanelService> panels = new LinkedHashMap<>();
     private final DbService dbService = new DbService();
     private final Map<Long, Object> userLocks = new ConcurrentHashMap<>();
 
     public ConfigManagerImpl() {
-        for (String country : PanelConfig.COUNTRIES) {
+        List<String> enabled = PanelConfig.enabledCountries();
+        System.out.println("[ConfigManager] включённые страны: " + enabled);
+        for (String country : enabled) {
             PanelConfig cfg = PanelConfig.forCountry(country);
             if (cfg == null) {
                 System.out.println("[ConfigManager] панель " + country + " не настроена — страна скрыта");
@@ -139,9 +141,9 @@ public class ConfigManagerImpl implements ConfigManager {
     public Map<String, String[]> getConfigs(Long userId) throws IOException, InterruptedException {
         Map<String, String[]> result = new LinkedHashMap<>();
 
-        // Все страны пользователя в порядке кнопок (раньше показывалась только первая по алфавиту — Германия).
-        // Страну без панели тоже показываем: freshLinks отдаст ссылки из БД
-        for (String country : PanelConfig.COUNTRIES) {
+        // Все включённые страны пользователя в порядке кнопок (раньше показывалась только первая по алфавиту —
+        // Германия). Конфиги выключенных стран не показываем: их серверы, как правило, уже не работают
+        for (String country : panels.keySet()) {
             Config config = dbService.getConfig(userId, country);
             if (config != null && DbService.STATUS_APPROVED.equals(config.getStatus())) {
                 result.put(country, freshLinks(userId, config));
@@ -168,12 +170,17 @@ public class ConfigManagerImpl implements ConfigManager {
 
     @Override
     public List<String> getWaitingCountries(Long userId) {
-        return dbService.getCountriesWithStatus(userId, DbService.STATUS_WAITING);
+        return onlyAvailable(dbService.getCountriesWithStatus(userId, DbService.STATUS_WAITING));
     }
 
     @Override
     public List<String> getRejectedCountries(Long userId) {
-        return dbService.getCountriesWithStatus(userId, DbService.STATUS_REJECTED);
+        return onlyAvailable(dbService.getCountriesWithStatus(userId, DbService.STATUS_REJECTED));
+    }
+
+    /** Заявка в выключенную страну не должна висеть у пользователя «ожидает одобрения» бесконечно. */
+    private List<String> onlyAvailable(List<String> countries) {
+        return countries.stream().filter(panels::containsKey).toList();
     }
 
     @Override
@@ -203,15 +210,19 @@ public class ConfigManagerImpl implements ConfigManager {
         }
 
         Long tgId = deleted.get(0).getTgUser().getId();
+        // Ошибка одной панели (недоступна, страна выключена) не должна оставлять клиента на остальных
+        List<String> failed = new java.util.ArrayList<>();
         for (Config config : deleted) {
             try {
                 panelFor(config.getCountry()).deleteClient(configName);
             } catch (Exception e) {
-                return "Конфиг удалён из БД (id=" + tgId + "), но с панели (" + config.getCountry()
-                        + ") удалить не удалось: " + e.getMessage();
+                failed.add(config.getCountry() + " (" + e.getMessage() + ")");
             }
         }
 
+        if (!failed.isEmpty()) {
+            return "Конфиг удалён из БД (id=" + tgId + "), но с панели удалить не удалось: " + String.join(", ", failed);
+        }
         return "Конфиг \"" + configName + "\" удалён (пользователь id=" + tgId + ").";
     }
 

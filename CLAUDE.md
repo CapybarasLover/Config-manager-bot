@@ -19,12 +19,12 @@ java -Dapp.env=prod -jar target/Config_bot-2.0-SNAPSHOT.jar
 # to every WS client and the Reality inbound to every bot client, including those who chose a single
 # protocol; idempotent; never deletes anything)
 java -Dapp.env=prod -cp target/Config_bot-2.0-SNAPSHOT.jar com.petr.tools.MergeInbounds
-# optional arg: latv | germ | pol | both (default both = every configured panel)
+# optional arg: latv | germ | pol | fin | both (default both = every configured panel)
 
 # Smoke test against a live panel (creates and deletes a test client claudetest_config)
-java -Dapp.env=prod -cp target/Config_bot-2.0-SNAPSHOT.jar com.petr.tools.PanelSmokeTest [latv|germ|pol|both]
+java -Dapp.env=prod -cp target/Config_bot-2.0-SNAPSHOT.jar com.petr.tools.PanelSmokeTest [latv|germ|pol|fin|both]
 # List a panel's inbounds (id, port, transport) without changing anything
-java -Dapp.env=prod -cp target/Config_bot-2.0-SNAPSHOT.jar com.petr.tools.PanelSmokeTest inbounds [latv|germ|pol]
+java -Dapp.env=prod -cp target/Config_bot-2.0-SNAPSHOT.jar com.petr.tools.PanelSmokeTest inbounds [latv|germ|pol|fin]
 ```
 
 `app.env` (`prod` | `dev`) controls DB connection string and 3x-ui inbound IDs.
@@ -69,6 +69,9 @@ Copy `.env.example` → `.env` and fill all values before running.
 | `XUI_API_TOKEN_POL` | Polish panel API token; required when `POL_PANEL_HOME_URL` is set |
 | `POL_SUB_BASE_URL` | Poland subscription base URL; required when `POL_PANEL_HOME_URL` is set |
 | `POL_WS_INBOUND` / `POL_XHTTP_INBOUND` / `POL_REALITY_INBOUND` | Polish inbound IDs. No defaults; empty or `0` → not used; at least one is required, a non-number is a startup error |
+| `FIN_PANEL_HOME_URL` / `XUI_API_TOKEN_FIN` / `FIN_SUB_BASE_URL` | Finnish (Helsinki) panel, like the Polish set. Optional: empty `FIN_PANEL_HOME_URL` → Finland hidden |
+| `FIN_WS_INBOUND` / `FIN_XHTTP_INBOUND` / `FIN_REALITY_INBOUND` | Finnish inbound IDs. No defaults; empty or `0` → not used; at least one is required |
+| `ENABLED_COUNTRIES` | Comma-separated subset of `latv,germ,pol,fin` to enable (e.g. `latv,germ,fin`). Empty → all configured. A disabled country vanishes from the bot (button, status, sync); its DB rows stay. An unknown code is a startup error |
 | `DB_LINK_PROD` / `DB_LINK_DEV` | JDBC URLs for prod/dev PostgreSQL |
 | `DB_USER` / `DB_PASSWORD` / `DB_NAME` | PostgreSQL credentials |
 | `ADMIN_CHATS` | Comma-separated Telegram chat IDs of admins (1 or more) |
@@ -114,15 +117,16 @@ and service logic — they differ only by configuration. There is no per-country
 fork anymore:
 - **`PanelConfig`** — holds one panel's settings (label, baseUrl, credentials,
   `wsInbound` (nullable → WS disabled), `xhttpInbound` (nullable → XHTTP disabled), `realityInbound` (nullable → Reality disabled), `subBaseUrl`). Factories
-  `PanelConfig.latv()` / `germ()` / `pol()` build these from env; `PanelConfig.COUNTRIES` (`latv`, `germ`, `pol`) is the button order and `forCountry(code)` the lookup. `offersTypeChoice()` (WS and XHTTP both present) decides whether the user picks a type; `singleTypes()` gives one button per configured protocol. Otherwise `defaultType()` (`BOTH` — every protocol of the panel) is used without asking, so Riga gives WS + Reality.
+  `PanelConfig.latv()` / `germ()` / `pol()` / `fin()` build these from env; `PanelConfig.COUNTRIES` (`latv`, `germ`, `pol`, `fin`) is the button order, `forCountry(code)` the lookup, and `enabledCountries()` reads `ENABLED_COUNTRIES`. `offersTypeChoice()` (XHTTP present plus at least one more protocol — Germany, Warsaw, Finland) decides whether the user picks a type; `singleTypes()` gives one button per configured protocol. A panel without XHTTP (Riga WS+Reality, or a Reality-only panel) does not ask and uses `defaultType()` (`BOTH` — every protocol of the panel), so Riga gives WS + Reality. Disabling WS via env (`GERM_WS_INBOUND=0`, `LATV_WS_INBOUND_PROD=0`) drops the WebSocket button and the WS link.
 - **`ConfigType`** — `WS` / `XHTTP` / `REALITY` attach exactly that protocol, `BOTH` (button «Все», callback `both`, same data as the former «Оба» so old messages keep working) attaches every protocol of the panel. Reality is no longer attached on its own: a user who picks «WebSocket» gets WS only. Attaching never detaches: picking one protocol later keeps the ones a client already has.
   - Latv: WS inbound from `LATV_WS_INBOUND_PROD/DEV` (default prod=`1`/dev=`3`); **no XHTTP** (removed from the Riga server; hard-coded `null`, the user skips the config-type choice); Reality inbound `LATV_REALITY_INBOUND_PROD` (default `8`); sub base from `LATV_SUB_BASE_URL` (default `https://petromerzlikino.site:2096/sub/`).
   - Germ: WS inbound `GERM_WS_INBOUND` (default `3`), XHTTP inbound `GERM_XHTTP_INBOUND` (default `2`), Reality inbound `GERM_REALITY_INBOUND` (default `5`), sub base `GERM_SUB_BASE_URL`.
-  - Pol (Warsaw): `pol()` returns `null` without `POL_PANEL_HOME_URL`, and `ConfigManagerImpl` then skips the country (the bot must start without Polish secrets). Inbounds only from `POL_*_INBOUND`, no defaults.
+  - Pol (Warsaw) and Fin (Helsinki): optional panels built by one `optionalPanel(prefix, …)` helper. `pol()` / `fin()` return `null` without `{PREFIX}_PANEL_HOME_URL`, and `ConfigManagerImpl` then skips the country (the bot must start without their secrets). Inbounds only from `{PREFIX}_*_INBOUND`, no defaults.
+  - Fin in prod (pipohyipetro.site, 3x-ui 3.11): Reality+Vision inbound `1` on 443 with a self-steal target; XHTTP inbound `2` listens on `127.0.0.1:20001` as a fallback of inbound 1, so the panel builds its link with port 443 and inbound 1's Reality settings. No WS. The panel API is reachable only from the bot server's IP (nginx on port 48858 + ufw); the subscription is served through 443 under a secret path.
 - **`ApiRequestsImpl`** (one class for all panels) — HTTP client (forced HTTP/1.1). Authenticates with the panel **API token** via `Authorization: Bearer <token>` on every request — no login/session/cookies/CSRF (the panel skips CSRF for Bearer-authed, non-browser callers). `executeWithRetry` retries up to 2× on `RequestException`. Requests time out (10 s connect, 20 s request). Client endpoints (`add`/`attach`/`del`/`get`/`links`/`list`) send/receive **JSON** (`application/json`).
-- **`PanelServiceImpl`** (one class for all panels) — `createClient(email, tgId, ConfigType)` is **create-or-attach**: no client → create in target inbounds; client exists → attach the missing inbounds, reusing its UUID/subId. A newly added Reality always ends up with XTLS Vision (see "XTLS Vision" in the API notes). Returns `String[]{wsLink, subLink, xhttpLink, realityLink}` (nulls allowed); links are fetched from the panel (`links/{email}`) and classified by matching the link port against each inbound's port (`GET inbounds/get/{id}`), falling back to `type=xhttp`/`splithttp` → xHTTP, `type=ws` → WS, else → Reality. `readClient(email)` returns the current links without changing the panel. `deleteClient(email)` removes the client from all inbounds in one call, together with its old `{base}_xhttp` twin if one exists (otherwise a deleted user keeps a working xHTTP link). Old `_xhttp` clients are never synced into the DB.
+- **`PanelServiceImpl`** (one class for all panels) — `createClient(email, tgId, ConfigType)` is **create-or-attach**: no client → create in target inbounds; client exists → attach the missing inbounds, reusing its UUID/subId. A newly added Reality always ends up with XTLS Vision (see "XTLS Vision" in the API notes). Returns `String[]{wsLink, subLink, xhttpLink, realityLink}` (nulls allowed); links are fetched from the panel (`links/{email}`) and classified by matching the link port against each inbound's port (`GET inbounds/get/{id}`) — a port match counts only when the link's transport fits the slot, because a fallback XHTTP link carries its master's port 443 — falling back to `type=xhttp`/`splithttp` → xHTTP, `type=ws` → WS, else → Reality. `readClient(email)` returns the current links without changing the panel. `deleteClient(email)` removes the client from all inbounds in one call, together with its old `{base}_xhttp` twin if one exists (otherwise a deleted user keeps a working xHTTP link). Old `_xhttp` clients are never synced into the DB.
 
-**`ConfigManagerImpl`** — `getConfigs(...)` always calls the panel's create-or-attach (never decides from DB links what is missing), then overwrites the DB links with what the panel returns. Builds one `PanelServiceImpl` per configured country of `PanelConfig.COUNTRIES` (`availableCountries()` drives the country buttons). Dispatches to the correct panel based on `country` param ("latv" / "germ" / "pol"); a country without a panel throws instead of falling back to another country, so a config is never created on the wrong server. Country stored in DB `config.country` column. Requests of one user are serialized (double tap). A first request for a name owned by another user (DB row, or a non-zero foreign `tgId` on the panel) throws `ConfigNameTakenException` and the bot asks for another name: create-or-attach would otherwise hand over someone else's client. `getConfigs(userId)` returns approved configs only and refreshes their links from the panel, falling back to the DB if it is down.
+**`ConfigManagerImpl`** — `getConfigs(...)` always calls the panel's create-or-attach (never decides from DB links what is missing), then overwrites the DB links with what the panel returns. Builds one `PanelServiceImpl` per enabled + configured country of `PanelConfig.enabledCountries()` (`availableCountries()` drives the country buttons). Dispatches to the correct panel based on `country` param ("latv" / "germ" / "pol" / "fin"); a country without a panel throws instead of falling back to another country, so a config is never created on the wrong server. `getConfigs`, `getWaitingCountries` and `getRejectedCountries` hide countries that are not enabled, so a request into a now-disabled country does not sit "waiting" forever. Country stored in DB `config.country` column. Requests of one user are serialized (double tap). A first request for a name owned by another user (DB row, or a non-zero foreign `tgId` on the panel) throws `ConfigNameTakenException` and the bot asks for another name: create-or-attach would otherwise hand over someone else's client. `getConfigs(userId)` returns approved configs only and refreshes their links from the panel, falling back to the DB if it is down.
 
 **`MergeInbounds`** (`com.petr.tools.MergeInbounds`) — one-off migration script. Reads `clients/list` (which includes each client's `inboundIds`); for every bot client (`_config` suffix or non-zero `tgId`) attaches the XHTTP inbound if it is in the WS inbound, and the Reality inbound always. Leaves old separate `_xhttp` clients untouched. Idempotent.
 
@@ -151,7 +155,7 @@ fork anymore:
 | `sub_link` | TEXT | Subscription URL |
 | `xhttp_link` | TEXT | XHTTP VLESS link (nullable — old configs don't have it) |
 | `reality_link` | TEXT | Reality link (nullable) |
-| `country` | VARCHAR(10) | `"latv"`, `"germ"` or `"pol"` — determines which panel to use for delete |
+| `country` | VARCHAR(10) | `"latv"`, `"germ"`, `"pol"` or `"fin"` — determines which panel to use for delete |
 | `status` | VARCHAR(5) | `"w"` waiting, `"a"` approved, `"d"` rejected |
 
 Liquibase changesets: `src/main/resources/db/changeset/` (SQL format, master: `db.changelog-master.yaml`).
@@ -167,13 +171,13 @@ User configs are named `{base}_config` (e.g. `petr_config`). The `_config` suffi
 2. **[Получить конфиг]** callback → edits message to country selection keyboard:
    ```
    [ 🇱🇻 Латвия ] [ 🇩🇪 Германия ]
-   [  🇵🇱 Польша  ]
+   [ 🇵🇱 Польша ] [ 🇫🇮 Финляндия ]
    [     Отмена     ]
    ```
-   Only countries with a configured panel are shown, two per row (Poland disappears without `POL_PANEL_HOME_URL`).
+   Only enabled + configured countries are shown, two per row (Poland/Finland disappear without their `*_PANEL_HOME_URL`, any country can be dropped via `ENABLED_COUNTRIES`).
 3. **[🇱🇻 Латвия]** → no type choice (Riga has only WS + Reality) → goes straight to step 5
    **[🇩🇪 Германия]** → shows torrent warning with **[✅ Принимаю условия]** / **[❌ Отмена]**
-   **[🇵🇱 Польша]** → no warning; type keyboard if the panel has both WS and XHTTP, otherwise straight to step 5
+   **[🇵🇱 Польша]** / **[🇫🇮 Финляндия]** → no warning; type keyboard when the panel has XHTTP plus another protocol, otherwise straight to step 5
 4. **[Принимаю условия]** → shows config type keyboard: `[ WebSocket ] [ xHTTP ] [ Reality ]`, then `[ Все ]` (a protocol button only if the panel has it). Each button gives exactly the named protocol, «Все» gives all of them. The choice itself is generic (`chooseTypeOrRequest`): it is offered only when the country's panel has both WS and XHTTP
 5. Config type chosen:
    - Has valid @username → attempt config creation (edits the message)
