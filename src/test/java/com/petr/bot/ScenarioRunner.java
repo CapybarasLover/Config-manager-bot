@@ -151,6 +151,7 @@ public final class ScenarioRunner {
         scenario("Регистрация: /start, повторный /start", ScenarioRunner::registration);
         scenario("Незарегистрированный: /get_config и кнопка", ScenarioRunner::unregistered);
         scenario("Справка: /help, /how_to_use, /cancel, произвольный текст", ScenarioRunner::helpCommands);
+        scenario("«Показать все доступные мне конфиги»", ScenarioRunner::showAllConfigs);
         scenario("Латвия: заявка, статус, одобрение, синхронизация админов", ScenarioRunner::latviaFullFlow);
         scenario("Германия: предупреждение и отмена на каждом шаге", ScenarioRunner::germanyCancel);
         scenario("Германия: новые конфиги WS / xHTTP / Оба", ScenarioRunner::germanyTypes);
@@ -247,6 +248,46 @@ public final class ScenarioRunner {
         check("/cancel без контекста", u.last().text.contains("Нечего отменять"));
         u.say("просто текст");
         check("непонятный текст", u.last().text.contains("не понял"));
+    }
+
+    /**
+     * Кнопка главного меню «Показать все доступные мне конфиги»: пусто / ожидание / готовые ссылки.
+     * Кнопка живёт на сообщении-приветствии и правит именно его (оно может быть не последним в чате),
+     * поэтому проверяем само это сообщение, а не u.last().
+     */
+    private static void showAllConfigs() throws Exception {
+        String SHOW = "Показать все доступные мне конфиги";
+
+        U fresh = registered("showall0");
+        Msg menu0 = fresh.last();
+        check("кнопка в главном меню", menu0.buttons.containsKey(SHOW));
+        pressOn(fresh, menu0, SHOW);
+        check("новому — «нет готовых конфигов»", menu0.text.contains("нет готовых конфигов"));
+        check("ссылок нет", !menu0.text.contains("vless://"));
+        check("меню на месте", menu0.buttons.containsKey("Получить конфиг"));
+
+        U waiting = registered("showall1");
+        Msg menu1 = waiting.last();
+        waiting.say("/get_config");
+        waiting.press("🇱🇻 Латвия");
+        pressOn(waiting, menu1, SHOW);
+        check("ожидающему — без ссылок, но с упоминанием Латвии",
+                !menu1.text.contains("vless://") && menu1.text.contains("Латвия") && menu1.text.contains("Ожидают"));
+
+        U ok = registered("showall2");
+        Msg menu2 = ok.last();
+        ok.say("/get_config");
+        ok.press("🇱🇻 Латвия");
+        adminPress(ADMIN_A, notification(ADMIN_A, ok.id), "Одобрить");
+        pressOn(ok, menu2, SHOW);
+        check("одобренному — ссылки Латвии", menu2.text.contains("latv.test") && menu2.text.contains("vless://"));
+        check("меню осталось", menu2.buttons.containsKey("Получить конфиг"));
+    }
+
+    /** Нажать кнопку на конкретном сообщении (не обязательно последнем) и дождаться обработки. */
+    private static void pressOn(U u, Msg m, String button) throws Exception {
+        tg.click(u.id, u.name, m.id, m.text, m.buttons.get(button));
+        settle();
     }
 
     private static void latviaFullFlow() throws Exception {

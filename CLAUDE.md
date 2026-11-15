@@ -169,7 +169,7 @@ User configs are named `{base}_config` (e.g. `petr_config`). The `_config` suffi
 ## Bot UX (inline keyboard flows)
 
 ### User flow
-1. `/start` → welcome message + **[Получить конфиг]** button
+1. `/start` → welcome message + **[Получить конфиг]** and **[Показать все доступные мне конфиги]** buttons. The second (`user:show_all`) edits its own message with every approved country's links at once (`getConfigs(userId)`, links refreshed from the panels); with nothing approved it says so and lists any waiting/rejected countries. It lives on the welcome message, so it edits that message in place wherever it sits in the chat.
 2. **[Получить конфиг]** callback → edits message to country selection keyboard:
    ```
    [ 🇱🇻 Латвия ] [ 🇩🇪 Германия ]

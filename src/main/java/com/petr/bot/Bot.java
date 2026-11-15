@@ -126,7 +126,8 @@ public class Bot {
 
         private static InlineKeyboardMarkup userMainKeyboard() {
             return new InlineKeyboardMarkup(new InlineKeyboardButton[][]{
-                    {new InlineKeyboardButton("Получить конфиг", "user:get_config")}
+                    {new InlineKeyboardButton("Получить конфиг", "user:get_config")},
+                    {new InlineKeyboardButton("Показать все доступные мне конфиги", "user:show_all")}
             });
         }
 
@@ -488,6 +489,31 @@ public class Bot {
             InlineKeyboardMarkup keyboard = !waiting.isEmpty() ? checkStatusKeyboard()
                     : configs.isEmpty() ? userMainKeyboard() : null;
             show(bot, chatId, msgId, text.toString(), keyboard, true);
+        }
+
+        /** Главное меню: показать готовые ссылки всех одобренных стран сразу (обновив их с панелей). */
+        @CallbackHandler(data = "user:show_all")
+        void onCallbackShowAll(BotContext bot, CallbackQuery query) throws IOException, InterruptedException {
+            answer(bot, query, null);
+            long chatId = query.from.id;
+            int msgId = query.message.message_id;
+            Map<String, String[]> configs = configManager.getConfigs(chatId);
+
+            if (!configs.isEmpty()) {
+                show(bot, chatId, msgId, formatAllConfigLinks(configs), userMainKeyboard(), true);
+                return;
+            }
+
+            StringBuilder text = new StringBuilder("У вас пока нет готовых конфигов.");
+            List<String> waiting = configManager.getWaitingCountries(chatId);
+            List<String> rejected = configManager.getRejectedCountries(chatId);
+            if (!waiting.isEmpty()) {
+                appendParagraph(text, "Ожидают одобрения администратора: " + countryTitles(waiting) + ".");
+            }
+            if (!rejected.isEmpty()) {
+                appendParagraph(text, "Отклонены: " + countryTitles(rejected) + ". Можно подать заявку снова.");
+            }
+            show(bot, chatId, msgId, text.toString(), userMainKeyboard(), false);
         }
 
         private static void appendParagraph(StringBuilder text, String paragraph) {

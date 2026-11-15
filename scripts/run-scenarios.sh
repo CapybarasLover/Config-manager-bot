@@ -11,7 +11,9 @@ ROOT="$(cd "$(dirname "$0")/.." && (pwd -W 2>/dev/null || pwd))"
 JAVA_BIN="${JAVA_BIN:-/c/Users/andre/AppData/Local/Programs/PyCharm/jbr/bin}"
 PG_BIN="${PG_BIN:-/c/Program Files/PostgreSQL/18/bin}"
 WORK="${SCENARIO_WORK_DIR:-$ROOT/target/scenarios}"
-PG_PORT=55491
+# 55491 попал в зарезервированный Windows диапазон (55452–55551) и перестал биндиться
+# («could not bind … Permission denied»). 15491 свободен; при нужде переопредели SCENARIO_PG_PORT.
+PG_PORT="${SCENARIO_PG_PORT:-15491}"
 JAR="$ROOT/target/Config_bot-2.0-SNAPSHOT.jar"
 
 SEP=":"
